@@ -12,7 +12,7 @@
 #include "util/log.h"
 #include <3ds.h>
 
-#define DOWNLOAD_BUFFER_SIZE (64 * 1024)
+#define DOWNLOAD_BUFFER_SIZE (128 * 1024)
 void download_key(const jfin_session_t *s,const char *id,char key[24]) {
     char art[24];cache_art_key(s->server_url,s->user_id,id,art,sizeof(art));
     snprintf(key,24,"dl-%s",art+4);

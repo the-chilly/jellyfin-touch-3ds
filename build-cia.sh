@@ -11,7 +11,7 @@ fi
 cia_sha256() {
     if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi
 }
-CIA_RELEASE_VERSION="${CIA_RELEASE_VERSION:-0.5.4}"
+CIA_RELEASE_VERSION="${CIA_RELEASE_VERSION:-0.5.5}"
 CIA_RELEASE_VERSION="${CIA_RELEASE_VERSION#v}"
 [[ "$CIA_RELEASE_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || { echo "Invalid CIA release version" >&2; exit 1; }
 CIA_MAJOR="${BASH_REMATCH[1]}"; CIA_MINOR="${BASH_REMATCH[2]}"; CIA_MICRO="${BASH_REMATCH[3]}"

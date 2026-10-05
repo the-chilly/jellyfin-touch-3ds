@@ -17,7 +17,7 @@ docker run --rm -v "$PROJECT_DIR:/src" -w /src "$IMAGE" bash -e -c '
     if [ ! -f lib/ffmpeg/libavformat.a ]; then
         bash lib/ffmpeg/build-ffmpeg.sh
     fi
-    make -j"$(nproc)" JFIN_VERSION=touch-0.5.4
+    make -j"$(nproc)" JFIN_VERSION=touch-0.5.5
 '
 SD_DIR="$PROJECT_DIR/dist/3ds/jellyfin-3ds"
 mkdir -p "$SD_DIR"
