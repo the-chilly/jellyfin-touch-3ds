@@ -31,18 +31,18 @@ extern "C" {
 #define UI_FONT_SIZE_SMALL   11
 
 /* ── Colors (RGBA8) ──────────────────────────────────────────────── */
-#define COLOR_BG_DARK        0xE8E3DBFF   /* warmer dark background */
-#define COLOR_BG_CARD        0xFFF9F0FF   /* more contrast with bg */
-#define COLOR_PRIMARY        0xEF6B18FF   /* muted steel blue */
-#define COLOR_TEXT_PRIMARY   0x252A30FF   /* slightly brighter white */
-#define COLOR_TEXT_SECONDARY 0x59616AFF   /* warmer mid-gray */
-#define COLOR_ACCENT         0x9E4017FF   /* soft lavender */
-#define COLOR_HIGHLIGHT      0xF4B42FFF   /* matches primary, 19% alpha */
+#define COLOR_BG_DARK        0x181C22FF
+#define COLOR_BG_CARD        0x262D37FF
+#define COLOR_PRIMARY        0x4A9EFFFF
+#define COLOR_TEXT_PRIMARY   0xEDF2F8FF
+#define COLOR_TEXT_SECONDARY 0xA4B1C2FF
+#define COLOR_ACCENT         0x82BCFFFF
+#define COLOR_HIGHLIGHT      0x2363A1FF
 
 /* Settings-specific colors */
-#define COLOR_SEPARATOR      0xD6D0C6FF   /* subtle divider lines */
-#define COLOR_VALUE          0x236E3DFF   /* muted green for values */
-#define COLOR_DANGER         0xAD3131FF   /* soft red for logout */
+#define COLOR_SEPARATOR      0x394453FF
+#define COLOR_VALUE          0x79C9ADFF
+#define COLOR_DANGER         0xFF8989FF
 
 /* ── Screens / Views ─────────────────────────────────────────────── */
 
@@ -82,6 +82,7 @@ typedef struct {
     download_t downloads[JFIN_MAX_ITEMS];
     int download_count, download_selected, download_scroll;
     bool playback_offline_only, playback_from_sd;
+    u64 resume_save_ms;
     jfin_item_list_t play_queue;
     jfin_item_details_t preview;
     bool preview_ready, preview_failed, details_loading;
@@ -133,6 +134,7 @@ bool ui_init(void);
 /**
  * Shut down the UI subsystem.
  */
+void ui_save_resume(ui_state_t *state,const jfin_session_t *session,bool force);
 void ui_begin_shutdown(void);
 void ui_cleanup(void);
 

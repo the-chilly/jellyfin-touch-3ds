@@ -15,9 +15,9 @@ int main(void) {
     assert(timeline_position(300,5000000)==0);
     assert(timeline_position(100,0)==0);
     assert(timeline_position(300,INT64_MAX)==INT64_MAX-10000000LL);
-    assert(timeline_hit(100,40,duration));
-    assert(!timeline_hit(100,80,duration));
-    assert(!timeline_hit(100,40,0));
+    assert(timeline_hit(100,80,duration));
+    assert(!timeline_hit(100,40,duration));
+    assert(!timeline_hit(100,80,0));
     mkdir("sdmc:",0755);
     jfin_config_t config, loaded;
     assert(!config_load(&config));

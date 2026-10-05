@@ -150,6 +150,7 @@ int main(int argc, char *argv[])
 
     /* ── Cleanup ───────────────────────────────────────────────────── */
 
+    ui_save_resume(&s_ui,&s_session,true);
     log_write("EXIT: cancel background requests and streams");
     audio_player_request_stop(); video_player_request_stop(); ui_begin_shutdown();
     log_write("EXIT: synchronize existing GPU work");C3D_FrameSync();

@@ -17,7 +17,7 @@ def run(*args, cwd=None):
 def compile_test(destination, sources, extra=()):
     run('clang', '-std=c11', '-Wall', '-Wextra', '-Werror',
         '-Wno-unused-variable', '-Wno-deprecated-declarations',
-        '-DJFIN_VERSION="touch-0.4.2"', '-I' + str(ROOT / 'tests/host'),
+        '-DJFIN_VERSION="touch-0.5.0"', '-I' + str(ROOT / 'tests/host'),
         '-I' + str(ROOT / 'include'), '-I' + str(ROOT / 'include/api'), *extra,
         *(str(ROOT / s) for s in sources), '-lcurl', '-lm', '-pthread', '-o', str(destination))
 
@@ -107,6 +107,11 @@ with tempfile.TemporaryDirectory(prefix='jellyfin-touch-test-') as folder:
     temp = Path(folder)
     compile_test(temp / 'core', ['tests/test_core.c', 'src/ui/timeline.c', 'src/util/config.c'])
     run(str(temp / 'core'), cwd=temp)
+    import shutil
+    pkg_config=shutil.which('pkg-config')
+    mpg_flags=subprocess.check_output([pkg_config,'--cflags','--libs','libmpg123'],text=True).split() if pkg_config else (['-I/opt/homebrew/include','-L/opt/homebrew/lib','-lmpg123'] if Path('/opt/homebrew/include/mpg123.h').exists() else ['-lmpg123'])
+    compile_test(temp/'audio-local',['tests/test_audio_local.c','src/audio/player.c','src/util/net.c'],['-DHOST_AUDIO',*mpg_flags])
+    run(str(temp/'audio-local'),str(ROOT/'tests/fixtures/song.mp3'),cwd=temp)
     compile_test(temp / 'ui', ['tests/test_ui.c', 'src/ui/ui.c', 'src/ui/timeline.c'], ['-DHOST_APT_CLOSE'])
     run(str(temp / 'ui'), cwd=temp)
     (temp / 'cert.conf').write_text('[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n'

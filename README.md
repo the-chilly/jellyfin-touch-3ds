@@ -8,7 +8,7 @@ A personal homebrew adaptation of [bogocat/jellyfin-3ds](https://github.com/bogo
 
 - Animated loading ring during playback startup, buffering, shelf and information loading. Foreground API requests poll in small slices to redraw while waiting; brief player/decoder setup can still pause drawing.
 
-- Netflix 3DS-inspired orange/gray browsing UI: selected poster and metadata on the top screen, three larger portrait posters below with a preview of the next shelf, and a yellow selection outline, and resume progress bars.
+- Netflix 3DS-inspired charcoal-gray and blue browsing UI: selected poster and metadata on the top screen, three larger portrait posters below with a preview of the next shelf, and a blue selection outline, and resume progress bars.
 - Persistent touchscreen tabs: Home, Library, Downloads, Settings. Downloads lists saved movies, episodes and songs with their SD file sizes. Touch **Play offline** or **Delete**. Download from Information (Y/touch) or Browse (X).
 - Home shelves: Continue Watching, Movies, TV Shows, Music (albums), Recently Added. Shelves show up to 16 titles; X opens full libraries with normal pagination.
 - Authenticated artwork and metadata load on separate artwork and metadata background threads. Encoded poster images are cached on SD, scoped by server and user, with a 128-file / 64 MiB maximum. Missing artwork uses a title placeholder. Failed requests retry automatically; L refreshes shelves and information; Settings can clear the shared cache.
@@ -30,7 +30,7 @@ With Docker installed and running:
 
 The script uses `devkitpro/devkitarm:20260610`, installs 3DS dependencies, builds the pinned FFmpeg fork when needed, and produces `jellyfin-3ds.3dsx` plus an SD-ready folder under `dist/3ds/jellyfin-3ds/`. The first FFmpeg build can take approximately 15 minutes. Run `./build.sh clean` to rebuild the app from scratch.
 
-For native devkitPro builds, install `3ds-dev`, `3ds-curl`, `3ds-mbedtls`, `3ds-zlib`, `3ds-mpg123`, `3ds-libopus`, `3ds-opusfile`, `3ds-libvorbisidec` and `3ds-libogg`. You also need the static FFmpeg libraries and headers in `lib/ffmpeg/`; the supplied FFmpeg build script targets the Linux Docker environment. Once those dependencies exist, run `make JFIN_VERSION=touch-0.4.2`.
+For native devkitPro builds, install `3ds-dev`, `3ds-curl`, `3ds-mbedtls`, `3ds-zlib`, `3ds-mpg123`, `3ds-libopus`, `3ds-opusfile`, `3ds-libvorbisidec` and `3ds-libogg`. You also need the static FFmpeg libraries and headers in `lib/ffmpeg/`; the supplied FFmpeg build script targets the Linux Docker environment. Once those dependencies exist, run `make JFIN_VERSION=touch-0.5.0`.
 
 Source and releases: [the-chilly/jellyfin-touch-3ds](https://github.com/the-chilly/jellyfin-touch-3ds). GitHub Actions can build the app; console behavior requires hardware testing.
 
@@ -106,15 +106,28 @@ Original Jellyfin 3DS implementation by bogocat and contributors. Underlying pro
 
 Information has a **Y Download to SD card** button. Downloads shows up to 50 saved titles for the current server/account with file sizes, Play offline, and Delete. Progress shows received MB and a size estimate when the server omits a total; B cancels. Keep the console awake while downloading. Movies/episodes use the existing H.264/AAC MPEG-TS stream; songs use MP3. Completed media and title/description metadata persist on SD, scoped to server and account. Login tokens are not included in download metadata. Previously viewed posters load from the artwork cache; a missing cached image shows the title.
 
-**Play offline** opens a local file and never falls back to streaming or reports playback to Jellyfin. The playback screen labels the source **SD card** or **Streaming**. Saved video supports the existing local-file seek path. Offline MP3 seeking is not implemented: the app leaves playback running and shows a message. Offline plays do not sync watched state. Downloads run in the foreground, with responsive cancel/HOME handling; there is no queue or interrupted-transfer resume yet. Each file is limited to 3.75 GiB. Transfers that fail, contain no media, have a short declared body, or fail to save are discarded. A nominally successful server response is not a guarantee that every frame of a long transcode is intact.
+**Play offline** opens a local file and never falls back to streaming or reports playback to Jellyfin. The playback screen labels the source **SD card** or **Streaming**. Saved video supports the existing local-file seek path. Saved MP3 files now support local seeking and resume using the native MP3 decoder. Offline plays do not sync watched state. Downloads run in the foreground, with responsive cancel/HOME handling; there is no queue or interrupted-transfer resume yet. Each file is limited to 3.75 GiB. Transfers that fail, contain no media, have a short declared body, or fail to save are discarded. A nominally successful server response is not a guarantee that every frame of a long transcode is intact.
 
 After a failed server connection at startup, saved titles for the remembered server/account open in Downloads. The initial connection attempt may take several seconds. Old unscoped cache files are not listed here; clear the cache in Settings and re-download them if needed. Deleting an active download stops playback first.
 
 The host tests download a real 20-second generated H.264/AAC test movie and an MP3 over trusted HTTPS, compare their saved bytes, reopen metadata after cache initialization, and verify rejection/cancellation cases. The saved movie is decoded with audio and sought to 10 seconds using host FFmpeg. UI tests confirm touch actions, local video seeking, no streaming fallback on failure, and stop-before-delete. **These checks do not validate the New 3DS hardware decoder or a live Jellyfin transcode.** See the package's TEST-OFFLINE.txt for the console procedure.
 
 
-## Updates — touch-0.4.2
+## Updates — touch-0.5.0
 
 In Settings, select or touch **Update**. The first press checks the latest public release from `the-chilly/jellyfin-touch-3ds`. If a newer version is available, press it again to install. B cancels a check or download. The app verifies the published SHA-256 digest, exact file size and 3DSX header before installing. Invalid or cancelled downloads leave the current executable intact. The previous executable is retained as `jellyfin-3ds.3dsx.bak`; exit and reopen through the Homebrew Launcher after installation. Keep the app in `/3ds/jellyfin-3ds/jellyfin-3ds.3dsx` for this updater. Login, cache, DSP firmware and settings are preserved. This button updates the 3DSX executable; CIA installations are not supported.
 
 Update requests use verified HTTPS without sending Jellyfin credentials. GitHub's latest-release API supplies release metadata and asset hashes ([API reference](https://docs.github.com/en/rest/releases/releases)). GitHub rate limits or missing network/certificates display an error. Update checks are manual. A release without the expected executable/hash is rejected. This is still an experimental build pending hardware testing.
+
+
+## Offline resume and playback UI — touch-0.5.0
+
+Saved movies, episodes and music store an offline bookmark on SD about every five seconds and on pause, back, stop, seek and application exit. Downloads offers **Resume offline** when a bookmark exists; Y starts from the beginning. Finishing near the end clears the bookmark. Checkpoints remain local and do not change Jellyfin watched state. A sudden power loss may lose the last few seconds. Existing downloads work without re-downloading; missing bookmark fields default to zero.
+
+The interface uses charcoal-gray surfaces, light text and blue accents. Playback has a title/source header, scrubber with time labels, large touch controls for -30 seconds, Pause/Play and +30 seconds, and separate Back, Stop and Hide buttons. Up restores hidden controls. Download progress shows received/total MB, percent, smoothed speed and estimated time left. Unknown server sizes show an estimated total/percent explicitly; neither completion nor remaining time is guaranteed during transcoding. Partial downloads remain cancellable and are only saved after validation.
+
+Host tests verify bookmark persistence/clearing, account isolation, touch controls and native MP3 decoding at the requested saved position. The UI preview is rendered from production draw calls with mock hardware; actual console fonts and rendering may differ. New 3DS hardware playback and SD behavior still need console validation.
+
+![Playback controls preview](docs/playback-blue-preview.png)
+
+Preview rendered from production UI draw calls on the host; console fonts may differ.

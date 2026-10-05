@@ -47,4 +47,22 @@ static inline void swkbdSetHintText(SwkbdState *s, const char *t) { (void)s;(voi
 static inline void swkbdSetInitialText(SwkbdState *s, const char *t) { (void)s;(void)t; }
 static inline void swkbdSetPasswordMode(SwkbdState *s, int t) { (void)s;(void)t; }
 static inline SwkbdButton swkbdInputText(SwkbdState *s, char *b, unsigned long n) { (void)s;(void)b;(void)n; return -1; }
+#ifdef HOST_AUDIO
+#include <string.h>
+typedef int16_t s16;
+typedef struct {void *data_vaddr;unsigned nsamples;int status;} ndspWaveBuf;
+enum {NDSP_WBUF_DONE,NDSP_WBUF_QUEUED,NDSP_WBUF_PLAYING,NDSP_INTERP_POLYPHASE,NDSP_FORMAT_STEREO_PCM16};
+static inline void *linearAlloc(size_t n){return malloc(n);}
+static inline void linearFree(void *p){free(p);}
+static inline void ndspChnSetRate(int c,float r){(void)c;(void)r;}
+static inline void ndspChnSetInterp(int c,int r){(void)c;(void)r;}
+static inline void ndspChnSetFormat(int c,int r){(void)c;(void)r;}
+static inline void ndspChnSetMix(int c,float *m){(void)c;(void)m;}
+static inline void ndspChnReset(int c){(void)c;}
+static inline void ndspChnSetPaused(int c,bool p){(void)c;(void)p;}
+static inline void ndspChnWaveBufClear(int c){(void)c;}
+static inline void DSP_FlushDataCache(void *p,size_t n){(void)p;(void)n;}
+void host_audio_buffer(const s16 *data,unsigned frames);
+static inline void ndspChnWaveBufAdd(int c,ndspWaveBuf *b){(void)c;host_audio_buffer(b->data_vaddr,b->nsamples);b->status=NDSP_WBUF_DONE;}
+#endif
 #endif

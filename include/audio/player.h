@@ -50,7 +50,7 @@ bool audio_player_init(void);
 void audio_player_cleanup(void);
 
 /**
- * Start playing audio from a stream URL.
+ * Start playing audio from a stream URL or a seekable saved MP3 file.
  * Begins buffering immediately, playback starts when buffer is sufficient.
  */
 bool audio_player_play(const char *url, int64_t duration_ticks, int64_t seek_offset_ticks);

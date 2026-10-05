@@ -101,19 +101,19 @@ void host_trace(int kind,float x,float y,float w,float h,u32 color,const char *t
 #endif
 int main(void) {
     assert(ui_init());ui_state_t s; reset(&s);
-    input(&s,KEY_TOUCH,KEY_TOUCH,160,40);
+    input(&s,KEY_TOUCH,KEY_TOUCH,160,80);
     assert(s.seeking && starts==0 && s.seek_preview_ticks==18000000000LL);
     input(&s,0,KEY_TOUCH,230,120); assert(starts==0);
     input(&s,0,0,0,0); assert(starts==1 && !s.seeking && last_seek==27000000000LL);
-    reset(&s);input(&s,KEY_TOUCH,KEY_TOUCH,100,100);input(&s,0,0,0,0);assert(starts==0);
-    reset(&s);video.state=VIDEO_PAUSED;input(&s,KEY_TOUCH,KEY_TOUCH,160,40);
+    reset(&s);input(&s,KEY_TOUCH,KEY_TOUCH,100,175);input(&s,0,0,0,0);assert(starts==0);
+    reset(&s);video.state=VIDEO_PAUSED;input(&s,KEY_TOUCH,KEY_TOUCH,160,80);
     input(&s,0,0,0,0);assert(s.seek_pause_pending && pauses==0);
     video.state=VIDEO_PLAYING;input(&s,0,0,0,0);assert(pauses==1 && !s.seek_pause_pending);
-    reset(&s);input(&s,KEY_TOUCH,KEY_TOUCH,160,40);input(&s,KEY_B,0,0,0);
+    reset(&s);input(&s,KEY_TOUCH,KEY_TOUCH,160,80);input(&s,KEY_B,0,0,0);
     assert(!s.seeking && starts==0 && s.current_view==VIEW_BROWSE);
     reset(&s);s.now_playing.runtime_ticks=5000000;video.position_ticks=0;
     input(&s,KEY_R,0,0,0);assert(starts==1 && last_seek==0);
-    reset(&s);input(&s,KEY_TOUCH,KEY_TOUCH,160,40);fail_start=true;input(&s,0,0,0,0);
+    reset(&s);input(&s,KEY_TOUCH,KEY_TOUCH,160,80);fail_start=true;input(&s,0,0,0,0);
     assert(!s.has_now_playing && s.auto_stopped && s.message[0]);
     reset(&s);s.current_view=VIEW_BROWSE;s.items.count=1;
     s.items.items[0].type=JFIN_ITEM_MOVIE;strcpy(s.items.items[0].id,"movie");
@@ -167,7 +167,7 @@ int main(void) {
     input(&s,KEY_TOUCH,KEY_TOUCH,30,175);
     assert(s.current_view==VIEW_NOW_PLAYING && s.playback_offline_only && s.playback_from_sd);
     assert(!strncmp(played_url,"sdmc:",5) && network_calls==0);
-    input(&s,0,0,0,0);video.state=VIDEO_PLAYING;input(&s,KEY_TOUCH,KEY_TOUCH,160,40);input(&s,0,0,0,0);
+    input(&s,0,0,0,0);video.state=VIDEO_PLAYING;input(&s,KEY_TOUCH,KEY_TOUCH,160,80);input(&s,0,0,0,0);
     assert(last_seek==100000000 && network_calls==0 && s.playback_offline_only);
     input(&s,KEY_B,0,0,0);assert(s.current_view==VIEW_DOWNLOADS);
     ui_render(&s,&session,&ps);input(&s,KEY_TOUCH,KEY_TOUCH,240,175);
@@ -180,6 +180,20 @@ int main(void) {
     input(&s,KEY_A,0,0,0);assert(s.current_view==VIEW_DOWNLOADS && network_calls==0 && s.message[0] && !s.has_now_playing);
     saved_available=false;fail_start=false;
     puts("PASS: Downloads touch controls, SD-only playback and seeking, stop-before-delete, and no streaming fallback on failure");
+    reset(&s);input(&s,KEY_TOUCH,KEY_TOUCH,150,135);assert(pauses==1);
+    reset(&s);video.position_ticks=600000000;input(&s,KEY_TOUCH,KEY_TOUCH,40,135);assert(last_seek==300000000);
+    reset(&s);video.position_ticks=600000000;input(&s,KEY_TOUCH,KEY_TOUCH,260,135);assert(last_seek==900000000);
+    reset(&s);input(&s,KEY_TOUCH,KEY_TOUCH,250,200);assert(s.bottom_hidden);
+    input(&s,KEY_DUP,0,0,0);assert(!s.bottom_hidden);
+    reset(&s);input(&s,KEY_TOUCH,KEY_TOUCH,150,200);assert(!s.has_now_playing && s.auto_stopped);
+    reset(&s);saved_available=true;s.current_view=VIEW_DOWNLOADS;s.has_now_playing=false;
+    s.download_count=1;s.downloads[0]=mock_download;s.downloads[0].details.resume_ticks=80000000;
+    input(&s,KEY_A,0,0,0);assert(last_seek==80000000 && s.playback_from_sd);
+    video.state=VIDEO_PLAYING;video.position_ticks=110000000;
+    input(&s,KEY_TOUCH,KEY_TOUCH,45,200);assert(s.current_view==VIEW_DOWNLOADS && mock_download.details.resume_ticks==110000000);
+    input(&s,KEY_Y,0,0,0);assert(last_seek==0);
+    saved_available=false;
+    puts("PASS: touch pause/backward/forward/stop/hide, offline resume and start-from-beginning");
     reset(&s);s.current_view=VIEW_SETTINGS;s.settings_scroll=8;
     input(&s,KEY_TOUCH,KEY_TOUCH,40,75);assert(s.settings_index==9 && strstr(s.message,"available"));
     input(&s,KEY_A,0,0,0);assert(strstr(s.message,"installed") && !s.has_now_playing);
@@ -199,6 +213,10 @@ int main(void) {
     session.authenticated=true;
     s.home_rows[0].items[0].resume_ticks=s.preview.resume_ticks;
     trace=fopen("ui-preview.trace","w");assert(trace);ui_render(&s,&session,&ps);fclose(trace);trace=NULL;
+    s.current_view=VIEW_NOW_PLAYING;s.has_now_playing=true;s.now_playing=s.preview.item;
+    s.playback_from_sd=true;video.state=VIDEO_PLAYING;video.position_ticks=19380000000LL;video.duration_ticks=s.now_playing.runtime_ticks;
+    trace=fopen("playback-preview.trace","w");assert(trace);ui_render(&s,&session,&ps);fclose(trace);trace=NULL;
+
 #endif
 #ifdef HOST_APT_CLOSE
     reset(&s);s.current_view=VIEW_DETAILS;s.details_loading=false;s.details.item.type=JFIN_ITEM_MOVIE;
@@ -224,3 +242,5 @@ bool album_art_load_cached(const jfin_session_t *s,const jfin_item_t *i){(void)s
 
 bool update_check(update_info_t *o,update_progress_t p,void *ctx,char *m,size_t n){(void)p;(void)ctx;memset(o,0,sizeof(*o));o->available=true;strcpy(o->version,"v0.4.2");snprintf(m,n,"Update available");return true;}
 bool update_install(const update_info_t *o,update_progress_t p,void *ctx,char *m,size_t n){(void)o;(void)p;(void)ctx;snprintf(m,n,"Update installed");return true;}
+
+bool download_set_resume(const jfin_session_t *s,const char *id,int64_t position){(void)s;if(!saved_available||strcmp(id,mock_download.details.item.id))return false;mock_download.details.resume_ticks=position;return true;}

@@ -39,6 +39,7 @@ bool download_save(const jfin_session_t *s,const jfin_item_details_t *d) {
     cJSON_AddBoolToObject(o,"AlbumImage",d->item.has_album_image);
     cJSON_AddNumberToObject(o,"Type",d->item.type);cJSON_AddNumberToObject(o,"Year",d->item.year);
     cJSON_AddNumberToObject(o,"Season",d->item.season_number);cJSON_AddNumberToObject(o,"Episode",d->item.index_number);
+    cJSON_AddNumberToObject(o,"Resume",(double)d->resume_ticks);
     cJSON_AddNumberToObject(o,"Duration",(double)d->item.runtime_ticks);
     cJSON_AddNumberToObject(o,"CommunityRating",d->community_rating);
     cJSON_AddNumberToObject(o,"Format3D",d->item.video_3d_format);
@@ -72,7 +73,9 @@ static bool read_entry(const jfin_session_t *s,const char *key,download_t *out) 
         field(o,"Album",d->item.album,sizeof(d->item.album));d->item.year=(int)fmax(0,fmin(9999,number(o,"Year")));
         d->item.season_number=(int)fmax(0,fmin(100000,number(o,"Season")));d->item.index_number=(int)fmax(0,fmin(100000,number(o,"Episode")));
         double duration=number(o,"Duration");valid=duration>=0 && duration<1e15;
-        d->item.runtime_ticks=valid?(int64_t)duration:0;d->community_rating=number(o,"CommunityRating");
+        d->item.runtime_ticks=valid?(int64_t)duration:0;
+        double resume=number(o,"Resume");d->resume_ticks=resume>=0 && resume<duration?(int64_t)resume:0;
+        d->item.resume_ticks=d->resume_ticks;d->community_rating=number(o,"CommunityRating");
         double raw_format=number(o,"Format3D");int format=raw_format>=0&&raw_format<=JFIN_3D_HTAB?(int)raw_format:0;d->item.video_3d_format=format>=0&&format<=JFIN_3D_HTAB?format:JFIN_3D_NONE;
         snprintf(out->key,sizeof(out->key),"%s",key);
         struct stat st;cache_path(key,download_ext(&d->item),path,sizeof(path));
@@ -136,4 +139,13 @@ bool download_transfer(const jfin_session_t *s,const jfin_item_details_t *d,cons
     if(!ok)remove(part);
     log_write("DL: %s curl=%d HTTP=%ld bytes=%llu",ok?"saved":"failed/cancelled",(int)result,http,(unsigned long long)t.bytes);
     return ok;
+}
+
+bool download_set_resume(const jfin_session_t *s,const char *id,int64_t position){
+    download_t entry;if(!download_find(s,id,&entry))return false;
+    int64_t duration=entry.details.item.runtime_ticks;
+    if(position<0)position=0;
+    if(duration<=0 || position>=duration || (duration>0 && position>=duration-(duration/20<20000000?duration/20:20000000)))position=0;
+    entry.details.resume_ticks=position;entry.details.item.resume_ticks=position;
+    return download_save(s,&entry.details);
 }

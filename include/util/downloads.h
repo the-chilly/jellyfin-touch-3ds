@@ -11,5 +11,6 @@ bool download_transfer(const jfin_session_t *session, const jfin_item_details_t 
 bool download_save(const jfin_session_t *session, const jfin_item_details_t *details);
 int download_list(const jfin_session_t *session, download_t *out, int capacity);
 bool download_find(const jfin_session_t *session, const char *id, download_t *out);
+bool download_set_resume(const jfin_session_t *session,const char *id,int64_t position);
 bool download_delete(const download_t *item);
 #endif

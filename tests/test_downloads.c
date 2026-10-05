@@ -30,8 +30,12 @@ int main(int argc,char **argv){
     while((n=fread(buf,1,sizeof(buf),in)))assert(fwrite(buf,1,n,out)==n);fclose(in);assert(fclose(out)==0);
     char metadata[512];cache_path(saved.key,"json",metadata,sizeof(metadata));FILE *meta=fopen(metadata,"rb");assert(meta);
     char text[16385];size_t ml=fread(text,1,sizeof(text)-1,meta);text[ml]=0;fclose(meta);assert(!strstr(text,s.access_token));
-    cache_init();assert(download_list(&s,list,5)==1);assert(cache_has(saved.key,"ts"));
-    jfin_session_t other=s;strcpy(other.user_id,"other");assert(download_list(&other,list,5)==0);
+    assert(download_set_resume(&s,"movie",100000000));
+    cache_init();assert(download_list(&s,list,5)==1);assert(list[0].details.resume_ticks==100000000);
+    assert(download_set_resume(&s,"movie",199000000));assert(download_find(&s,"movie",&saved)&&saved.details.resume_ticks==0);
+    assert(download_set_resume(&s,"movie",-1));
+    assert(download_list(&s,list,5)==1);assert(cache_has(saved.key,"ts"));
+    jfin_session_t other=s;strcpy(other.user_id,"other");assert(!download_set_resume(&other,"movie",1));assert(download_list(&other,list,5)==0);
     strcpy(other.server_url,"https://different");assert(download_list(&other,list,5)==0);
     assert(download_delete(&saved));assert(!download_find(&s,"movie",&saved));
     jfin_item_details_t audio=movie;audio.item.type=JFIN_ITEM_AUDIO;strcpy(audio.item.id,"song");

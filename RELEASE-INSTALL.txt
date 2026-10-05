@@ -16,7 +16,7 @@ Browse: A opens information/folders; Y search; ZR current playback.
         L/R library pages; X download to SD; SELECT Settings.
 Information: touch Play/Resume or From beginning; Up/Down scroll; A resumes/plays; X plays from the beginning. Y downloads to SD.
 Downloads: select a saved title, A/touch Play offline; X/touch Delete.
-           Saved video seeks locally. Offline music seeking is unavailable.
+           Saved video and music seek locally. A resumes; Y starts from beginning.
            See TEST-OFFLINE.txt and the separately supplied test movie.
 Playback: tap/drag the bottom-screen timeline, then release to seek.
           A pauses; L/R skip 30 seconds; X stops; B goes back.

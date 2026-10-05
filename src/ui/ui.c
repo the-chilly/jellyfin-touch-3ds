@@ -134,6 +134,22 @@ static bool item_is_playable(const jfin_item_t *item)
  * (cache_total_bytes walks the SD directory) */
 static u64 s_cache_bytes_ui;
 
+void ui_save_resume(ui_state_t *state,const jfin_session_t *session,bool force){
+    if(!state->has_now_playing || !state->playback_from_sd)return;
+    u64 now=osGetTime();if(!force && now-state->resume_save_ms<5000)return;
+    video_status_t vs=video_player_get_status();player_status_t audio=audio_player_get_status();
+    bool video=item_is_video(&state->now_playing);
+    if((video && (vs.state==VIDEO_LOADING||vs.state==VIDEO_ERROR)) ||
+       (!video && (audio.state==PLAYER_LOADING||audio.state==PLAYER_ERROR)))return;
+    int64_t position=video?vs.position_ticks:audio.position_ticks;
+    state->resume_save_ms=now;
+    if(!download_set_resume(session,state->now_playing.id,position))return;
+    int64_t duration=state->now_playing.runtime_ticks;
+    if(position<0 || position>=duration || (duration>0 && position>=duration-(duration/20<20000000?duration/20:20000000)))position=0;
+    for(int i=0;i<state->download_count;i++)if(!strcmp(state->downloads[i].details.item.id,state->now_playing.id)){
+        state->downloads[i].details.resume_ticks=position;state->downloads[i].details.item.resume_ticks=position;
+    }
+}
 /**
  * Start playback of a playable item, preferring the offline cache.
  * Covers: video with audio-stream fallback, audio/Old-3DS path, playback
@@ -144,6 +160,7 @@ static bool ui_start_item(ui_state_t *state, const jfin_session_t *session,
                           const jfin_item_t *item, int item_index,
                           int64_t start_ticks)
 {
+    ui_save_resume(state,session,true);
     s_wait_label = "Starting playback...";
     draw_wait_frame((void *)1);
     if (s_ui_exiting) return false;
@@ -156,13 +173,10 @@ static bool ui_start_item(ui_state_t *state, const jfin_session_t *session,
     bool downloaded=download_find(session,item->id,&saved);
     bool offline=state->current_view==VIEW_DOWNLOADS || (restarting && state->playback_offline_only);
     state->playback_from_sd=false;
-    if (offline && item->type==JFIN_ITEM_AUDIO && start_ticks!=0) {
-        snprintf(state->message,sizeof(state->message),"Offline music seeking is not available yet.");return false;
-    }
     if (downloaded && cache_path(saved.key,download_ext(item),cpath,sizeof(cpath))) {
         audio_player_stop();video_player_stop();
         started=item_is_video(item)?video_player_play(cpath,item->runtime_ticks,start_ticks,item_3d_mode(item)):
-            audio_player_play(cpath,item->runtime_ticks,0);
+            audio_player_play(cpath,item->runtime_ticks,start_ticks);
         state->playback_from_sd=started;
         /* A broken saved movie must show an error, never switch to streaming. */
         if(!started){state->has_now_playing=false;state->auto_stopped=true;return false;}
@@ -209,6 +223,7 @@ static bool ui_start_item(ui_state_t *state, const jfin_session_t *session,
         state->playing_index = item_index;
         state->auto_stopped = false;
         state->playback_offline_only=offline;
+        if(state->playback_from_sd)download_set_resume(session,item->id,start_ticks);
         if(offline){album_art_load_cached(session,item);state->play_queue.count=1;state->play_queue.items[0]=*item;state->playing_index=0;}
         if (!restarting && !offline) {
             jfin_report_start(session, item->id);
@@ -227,9 +242,7 @@ static void ui_seek(ui_state_t *state, const jfin_session_t *session,
     int index = state->playing_index;
     state->seeking = false;
     target = timeline_clamp(target, item.runtime_ticks);
-    if(state->playback_offline_only && item.type==JFIN_ITEM_AUDIO) {
-        snprintf(state->message,sizeof(state->message),"Offline music seeking is not available yet.");return;
-    }
+    ui_save_resume(state,session,true);
     video_player_stop();
     audio_player_stop();
     if (!ui_start_item(state, session, &item, index, target)) {
@@ -243,6 +256,7 @@ static void ui_seek(ui_state_t *state, const jfin_session_t *session,
     if(!state->playback_offline_only)jfin_report_progress(session, item.id, target, paused);
 }
 
+static int draw_wrapped_color(float x,float y,float size,float width,int max_lines,int skip,const char *text,u32 color);
 /* ── Modal download (blocking, B cancels) ──────────────────────────── */
 
 typedef struct {
@@ -250,6 +264,8 @@ typedef struct {
     int64_t            est_total;  /* runtime x bitrate estimate (bytes) */
     u64                last_render_ms;
     bool               cancelled;
+    u64 start_ms, sample_ms, sample_bytes, total;
+    double speed;
 } dl_ctx_t;
 
 static void dl_render_progress(dl_ctx_t *dl, s64 dlnow)
@@ -258,24 +274,42 @@ static void dl_render_progress(dl_ctx_t *dl, s64 dlnow)
     C2D_TextBufClear(s_text_buf);
     C2D_TargetClear(s_bottom, rgba(COLOR_BG_DARK));
     C2D_SceneBegin(s_bottom);
-    draw_text(10, 10, 0.6f, rgba(COLOR_PRIMARY), "Downloading");
-    draw_text(10, 40, 0.5f, rgba(COLOR_TEXT_PRIMARY), dl->item->name);
-
-    char line[96];
-    double mb = (double)dlnow / (1024.0 * 1024.0);
-    if (dl->est_total > 0) {
-        int pct = (int)((double)dlnow * 100.0 / (double)dl->est_total);
-        if (pct > 99) pct = 99; /* size is an estimate — never claim done */
-        draw_rect(20, 80, 280, 8, rgba(COLOR_BG_CARD));
-        draw_rect(20, 80, 280.0f * pct / 100.0f, 8, rgba(COLOR_PRIMARY));
-        snprintf(line, sizeof(line), "%.1f MB  (~%d%%)", mb, pct);
-    } else {
-        snprintf(line, sizeof(line), "%.1f MB", mb);
+    draw_rect(0,0,320,28,rgba(COLOR_BG_CARD));
+    draw_text(14,5,0.49f,rgba(COLOR_TEXT_PRIMARY),"Saving to SD card");
+    draw_text(245,8,0.32f,rgba(COLOR_PRIMARY),"DOWNLOAD");
+    draw_wrapped_color(16,43,0.48f,288,2,0,dl->item->name,rgba(COLOR_TEXT_PRIMARY));
+    char line[128];double mb=(double)dlnow/1048576.0;
+    uint64_t total=dl->total?dl->total:(dl->est_total>0?(uint64_t)dl->est_total:0);
+    bool estimated=!dl->total;
+    draw_rect(16,91,288,10,rgba(COLOR_SEPARATOR));
+    if(total){
+        double fraction=(double)dlnow/(double)total;if(fraction>1)fraction=1;
+        draw_rect(16,91,(float)(288*fraction),10,rgba(COLOR_PRIMARY));
+        snprintf(line,sizeof(line),"%.1f / %s%.1f MB",mb,estimated?"about ":"",(double)total/1048576.0);
+        draw_text(16,110,0.40f,rgba(COLOR_TEXT_PRIMARY),line);
+        int percent=(int)(fraction*100);if(percent>99)percent=99;
+        snprintf(line,sizeof(line),"%s%d%%",estimated?"~":"",percent);
+        draw_text(257,110,0.40f,rgba(COLOR_PRIMARY),line);
+    }else{
+        unsigned phase=(unsigned)(osGetTime()/20)%240;
+        draw_rect(16+phase,91,48,10,rgba(COLOR_PRIMARY));
+        snprintf(line,sizeof(line),"%.1f MB received - total unknown",mb);
+        draw_text(16,110,0.38f,rgba(COLOR_TEXT_PRIMARY),line);
     }
-    draw_text(20, 100, 0.5f, rgba(COLOR_VALUE), line);
-    draw_text(10, 140, 0.4f, rgba(COLOR_TEXT_SECONDARY),
-              "Keep the lid open — closing it drops WiFi.");
-    draw_text(10, 210, 0.45f, rgba(COLOR_TEXT_SECONDARY), "B: cancel");
+    if(dl->speed>0){
+        snprintf(line,sizeof(line),"%.0f KB/s",dl->speed/1024.0);
+        draw_text(16,139,0.36f,rgba(COLOR_TEXT_SECONDARY),line);
+        if(total>(uint64_t)dlnow){
+            double seconds=(total-(uint64_t)dlnow)/dl->speed;
+            if(seconds<86400){char time[24];format_ticks((int64_t)(seconds*10000000),time,sizeof(time));
+                snprintf(line,sizeof(line),"%s%s left",estimated?"About ":"",time);
+                draw_text(153,139,0.36f,rgba(COLOR_TEXT_SECONDARY),line);}
+        }
+    }else draw_text(16,139,0.36f,rgba(COLOR_TEXT_SECONDARY),"Waiting for server...");
+    draw_text(16,163,0.32f,rgba(COLOR_TEXT_SECONDARY),estimated?"Size/time estimated while server transcodes.":((uint64_t)dlnow>=total?"Finalizing and checking before saving.":"Total size provided by the server."));
+    draw_text(16,180,0.31f,rgba(COLOR_TEXT_SECONDARY),"Keep the lid open during downloads.");
+    draw_rect(16,205,288,27,rgba(COLOR_BG_CARD));
+    draw_text(112,210,0.40f,rgba(COLOR_PRIMARY),"B Cancel");
     C3D_FrameEnd(0);
 }
 
@@ -296,6 +330,12 @@ static int dl_progress_cb(void *ud, curl_off_t dltotal, curl_off_t dlnow,
     }
 
     u64 now = osGetTime();
+    if(!dl->sample_ms){dl->sample_ms=now;dl->sample_bytes=(u64)dlnow;}
+    else if(now-dl->sample_ms>=1000){
+        double current=((u64)dlnow-dl->sample_bytes)*1000.0/(now-dl->sample_ms);
+        dl->speed=dl->speed>0?dl->speed*0.65+current*0.35:current;
+        dl->sample_ms=now;dl->sample_bytes=(u64)dlnow;
+    }
     if (now - dl->last_render_ms >= 250) {
         dl->last_render_ms = now;
         dl_render_progress(dl, (s64)dlnow);
@@ -305,7 +345,7 @@ static int dl_progress_cb(void *ud, curl_off_t dltotal, curl_off_t dlnow,
 
 static bool dl_pump(uint64_t bytes,uint64_t total,void *context) {
     dl_ctx_t *dl=context;
-    if(total>0 && total<INT64_MAX)dl->est_total=(int64_t)total;
+    dl->total=total;
     return dl_progress_cb(dl,(curl_off_t)total,(curl_off_t)bytes,0,0)==0;
 }
 static void reload_downloads(ui_state_t *state,const jfin_session_t *session) {
@@ -629,6 +669,7 @@ static void update_preview(ui_state_t *state, const jfin_session_t *session)
 void ui_update(ui_state_t *state, const jfin_session_t *session,
                u32 kdown, u32 kheld, touchPosition touch)
 {
+    ui_save_resume(state,session,false);
     if (kdown && state->message[0]) state->message[0] = '\0';
     if ((kdown & KEY_TOUCH) && touch.py < 25 && touch.px >= 240 &&
         (state->current_view == VIEW_HOME || state->current_view == VIEW_BROWSE ||
@@ -916,8 +957,21 @@ void ui_update(ui_state_t *state, const jfin_session_t *session,
                 state->bottom_hidden = true;
                 break;
             }
+            /* Large touch targets share the existing hardware controls. */
+            if(kdown&KEY_TOUCH){
+                if(touch.py>=116 && touch.py<167){
+                    if(touch.px>=16 && touch.px<99)kdown|=KEY_L;
+                    else if(touch.px>=111 && touch.px<209)kdown|=KEY_A;
+                    else if(touch.px>=221 && touch.px<304)kdown|=KEY_R;
+                }else if(touch.py>=186 && touch.py<220){
+                    if(touch.px>=16 && touch.px<105)kdown|=KEY_B;
+                    else if(touch.px>=116 && touch.px<205)kdown|=KEY_X;
+                    else if(touch.px>=216 && touch.px<305){state->bottom_hidden=true;break;}
+                }
+            }
             /* A to pause/resume */
             if (kdown & KEY_A) {
+                ui_save_resume(state,session,true);
                 if (vid_active)
                     video_player_pause();
                 else
@@ -956,11 +1010,13 @@ void ui_update(ui_state_t *state, const jfin_session_t *session,
             }
             /* B to go back to browse */
             if (kdown & KEY_B) {
+                ui_save_resume(state,session,true);
                 state->bottom_hidden = false;
                 state->current_view = state->previous_view;
             }
             /* X to stop */
             if (kdown & KEY_X) {
+                ui_save_resume(state,session,true);
                 state->bottom_hidden = false;
                 video_player_stop();
                 audio_player_stop();
@@ -1018,8 +1074,8 @@ void ui_update(ui_state_t *state, const jfin_session_t *session,
         if(state->download_selected>=state->download_scroll+3)state->download_scroll=state->download_selected-2;
         if(state->download_count>0) {
             download_t *saved=&state->downloads[state->download_selected];
-            if(kdown & KEY_A) {
-                if(ui_start_item(state,session,&saved->details.item,0,0)) {
+            if(kdown & (KEY_A|KEY_Y)) {
+                if(ui_start_item(state,session,&saved->details.item,0,(kdown&KEY_Y)?0:saved->details.resume_ticks)) {
                     state->previous_view=VIEW_DOWNLOADS;state->current_view=VIEW_NOW_PLAYING;
                 } else snprintf(state->message,sizeof(state->message),"Could not play saved file. Streaming was not used.");
             }
@@ -1472,61 +1528,42 @@ void ui_render_now_playing(const ui_state_t *state, const player_status_t *playe
         }
     }
 
+    const jfin_item_t *media=&state->now_playing;
+    bool paused=is_video?vstatus.state==VIDEO_PAUSED:player->state==PLAYER_PAUSED;
+    draw_rect(0,0,320,29,rgba(COLOR_BG_CARD));
+    draw_text(16,6,0.42f,rgba(COLOR_TEXT_PRIMARY),"NOW PLAYING");
+    draw_text(242,9,0.30f,rgba(COLOR_PRIMARY),state->playback_from_sd?"SD CARD":"STREAMING");
+    draw_wrapped_color(16,39,0.46f,288,1,0,media->name,rgba(COLOR_TEXT_PRIMARY));
     char context[160];
-    const jfin_item_t *media = &state->now_playing;
-    snprintf(context, sizeof(context), "%.56s", media->name);
-    draw_wrapped(10, 4, 0.45f, 300, 1, 0, context);
-    if (media->type == JFIN_ITEM_EPISODE)
-        snprintf(context, sizeof(context), "%.44s  S%d E%d", media->series_name,
-                 media->season_number, media->index_number);
-    else if (media->artist[0])
-        snprintf(context, sizeof(context), "%.44s - %.44s", media->artist, media->album);
-    else
-        snprintf(context, sizeof(context), "%s", media->year > 0 ? "Movie" : "Media");
-    draw_wrapped(10, 19, 0.36f, 300, 1, 0, context);
-    if (state->seeking) pos_ticks = state->seek_preview_ticks;
-    if (dur_ticks <= 0) dur_ticks = media->runtime_ticks;
-    /* Progress bar */
-    float progress = 0.0f;
-    if (dur_ticks > 0)
-        progress = (float)pos_ticks / (float)dur_ticks;
-    if (progress > 1.0f) progress = 1.0f;
-    if (progress < 0.0f) progress = 0.0f;
+    if(media->type==JFIN_ITEM_EPISODE)snprintf(context,sizeof(context),"%.60s - S%d E%d",media->series_name,media->season_number,media->index_number);
+    else if(media->artist[0])snprintf(context,sizeof(context),"%.64s",media->artist);
+    else snprintf(context,sizeof(context),"%s",state->seeking?"Release to seek":state_str);
+    draw_wrapped(16,56,0.31f,288,1,0,context);
+    if(state->seeking)pos_ticks=state->seek_preview_ticks;
+    if(dur_ticks<=0)dur_ticks=media->runtime_ticks;
+    float progress=dur_ticks>0?(float)timeline_clamp(pos_ticks,dur_ticks)/(float)dur_ticks:0;
+    draw_rect(TIMELINE_X,79,TIMELINE_WIDTH,7,rgba(COLOR_SEPARATOR));
+    draw_rect(TIMELINE_X,79,TIMELINE_WIDTH*progress,7,rgba(COLOR_PRIMARY));
+    draw_rect(TIMELINE_X+TIMELINE_WIDTH*progress-3,75,6,15,rgba(COLOR_ACCENT));
+    char pos[24],duration[24];format_ticks(pos_ticks,pos,sizeof(pos));format_ticks(dur_ticks,duration,sizeof(duration));
+    draw_text(20,94,0.35f,rgba(COLOR_TEXT_SECONDARY),pos);
+    float tw;C2D_Text measure;C2D_TextParse(&measure,s_measure_buf,duration);C2D_TextGetDimensions(&measure,0.35f,0.35f,&tw,NULL);
+    draw_text(300-tw,94,0.35f,rgba(COLOR_TEXT_SECONDARY),duration);
+    C2D_TextBufClear(s_measure_buf);
+    /* Centered primary controls, with generous stylus/finger targets. */
+    draw_rect(16,116,83,51,rgba(COLOR_BG_CARD));
+    draw_rect(111,116,98,51,rgba(COLOR_PRIMARY));
+    draw_rect(221,116,83,51,rgba(COLOR_BG_CARD));
+    draw_text(28,132,0.48f,rgba(COLOR_ACCENT),"< 30s");
+    draw_text(paused?137:127,132,0.48f,rgba(COLOR_BG_DARK),paused?"Play":"Pause");
+    draw_text(236,132,0.48f,rgba(COLOR_ACCENT),"30s >");
+    if(state->playback_from_sd)snprintf(context,sizeof(context),"%s  |  Offline playback",state->seeking?"Release to seek":state_str);
+    else snprintf(context,sizeof(context),"%s  |  Buffer %d%%",state->seeking?"Release to seek":state_str,buf_pct);
+    draw_wrapped(16,172,0.30f,288,1,0,context);
+    const float x[]={16,116,216};const char *labels[]={"Back","Stop","Hide"};
+    for(int i=0;i<3;i++){draw_rect(x[i],186,89,34,rgba(COLOR_BG_CARD));draw_text(x[i]+26,194,0.40f,rgba(i==1?COLOR_DANGER:COLOR_TEXT_SECONDARY),labels[i]);}
+    draw_text(23,226,0.28f,rgba(COLOR_TEXT_SECONDARY),"A Play/Pause   L/R Seek   Up Restore controls");
 
-    draw_rect(TIMELINE_X, 40, TIMELINE_WIDTH, 10, rgba(COLOR_BG_CARD));
-    draw_rect(TIMELINE_X, 40, TIMELINE_WIDTH * progress, 10, rgba(COLOR_PRIMARY));
-
-    /* Time labels */
-    char pos_str[16], dur_str[16];
-    format_ticks(pos_ticks, pos_str, sizeof(pos_str));
-    format_ticks(dur_ticks, dur_str, sizeof(dur_str));
-    draw_text(20, 50, 0.4f, rgba(COLOR_TEXT_SECONDARY), pos_str);
-    draw_text(270, 50, 0.4f, rgba(COLOR_TEXT_SECONDARY), dur_str);
-
-    draw_text(75, 80, 0.45f, rgba(COLOR_PRIMARY),
-              state->seeking ? "Release to seek" : state_str);
-    draw_text(235,5,0.30f,rgba(COLOR_PRIMARY),state->playback_from_sd?"SD card":"Streaming");
-    draw_text(40, 150, 0.4f, rgba(COLOR_ACCENT),
-              dur_ticks > 0 ? "Touch / drag the bar to seek" : "Seeking unavailable: unknown duration");
-
-    /* Buffer indicator */
-    char buf_str[64];
-    snprintf(buf_str, sizeof(buf_str), "Buffer: %d%%", buf_pct);
-    draw_text(115, 100, 0.4f, rgba(COLOR_TEXT_SECONDARY), buf_str);
-
-    /* Diagnostics for video playback */
-    if (is_video) {
-        char diag[80];
-        snprintf(diag, sizeof(diag), "%sDec: %.0f fps  Disp: %.0f fps  %dx%d",
-                 vstatus.is_3d ? "3D  " : "",
-                 vstatus.decode_fps, vstatus.display_fps,
-                 vstatus.video_width, vstatus.video_height);
-        draw_text(30, 125, 0.38f, rgba(COLOR_TEXT_SECONDARY), diag);
-    }
-
-    /* Controls hint */
-    draw_text(20, 180, 0.45f, rgba(COLOR_TEXT_PRIMARY),
-              "A:Pause X:Stop B:Back L/R:Seek");
 }
 
 static int draw_wrapped(float x, float y, float size, float width,
@@ -1756,9 +1793,11 @@ void ui_render(const ui_state_t *state, const jfin_session_t *session,
             draw_wrapped_color(14,y+2,0.40f,292,1,0,d->details.item.name,rgba(COLOR_TEXT_PRIMARY));
             char size[80];snprintf(size,sizeof(size),"%s  -  %.1f MB on SD card",d->details.item.type==JFIN_ITEM_AUDIO?"Music":"Video",(double)d->bytes/1048576.0);
             draw_text(14,y+22,0.31f,rgba(COLOR_TEXT_SECONDARY),size);
+            if(d->details.resume_ticks>0){char resume[24];format_ticks(d->details.resume_ticks,resume,sizeof(resume));draw_text(241,y+22,0.31f,rgba(COLOR_PRIMARY),resume);}
         }
         if(state->download_count){
-            draw_rect(10,160,145,38,rgba(COLOR_BG_CARD));draw_text(17,170,0.39f,rgba(COLOR_PRIMARY),"A Play offline");
+            draw_text(14,199,0.28f,rgba(COLOR_TEXT_SECONDARY),"Y Play from beginning");
+            draw_rect(10,160,145,38,rgba(COLOR_BG_CARD));draw_text(17,170,0.39f,rgba(COLOR_PRIMARY),state->downloads[state->download_selected].details.resume_ticks>0?"A Resume offline":"A Play offline");
             draw_rect(165,160,145,38,rgba(COLOR_BG_CARD));draw_text(176,170,0.39f,rgba(COLOR_DANGER),"X Delete");
         }
         break;

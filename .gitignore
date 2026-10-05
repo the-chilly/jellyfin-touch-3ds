@@ -25,3 +25,6 @@ dist/
 sdmc:/
 __pycache__/
 *.part
+
+# Host-rendered preview traces
+*.trace
