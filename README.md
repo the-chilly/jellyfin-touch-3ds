@@ -30,7 +30,7 @@ With Docker installed and running:
 
 The script uses `devkitpro/devkitarm:20260610`, installs 3DS dependencies, builds the pinned FFmpeg fork when needed, and produces `jellyfin-3ds.3dsx` plus an SD-ready folder under `dist/3ds/jellyfin-3ds/`. The first FFmpeg build can take approximately 15 minutes. Run `./build.sh clean` to rebuild the app from scratch.
 
-For native devkitPro builds, install `3ds-dev`, `3ds-curl`, `3ds-mbedtls`, `3ds-zlib`, `3ds-mpg123`, `3ds-libopus`, `3ds-opusfile`, `3ds-libvorbisidec` and `3ds-libogg`. You also need the static FFmpeg libraries and headers in `lib/ffmpeg/`; the supplied FFmpeg build script targets the Linux Docker environment. Once those dependencies exist, run `make JFIN_VERSION=touch-0.4.1`.
+For native devkitPro builds, install `3ds-dev`, `3ds-curl`, `3ds-mbedtls`, `3ds-zlib`, `3ds-mpg123`, `3ds-libopus`, `3ds-opusfile`, `3ds-libvorbisidec` and `3ds-libogg`. You also need the static FFmpeg libraries and headers in `lib/ffmpeg/`; the supplied FFmpeg build script targets the Linux Docker environment. Once those dependencies exist, run `make JFIN_VERSION=touch-0.4.2`.
 
 Source and releases: [the-chilly/jellyfin-touch-3ds](https://github.com/the-chilly/jellyfin-touch-3ds). GitHub Actions can build the app; console behavior requires hardware testing.
 
@@ -113,7 +113,7 @@ After a failed server connection at startup, saved titles for the remembered ser
 The host tests download a real 20-second generated H.264/AAC test movie and an MP3 over trusted HTTPS, compare their saved bytes, reopen metadata after cache initialization, and verify rejection/cancellation cases. The saved movie is decoded with audio and sought to 10 seconds using host FFmpeg. UI tests confirm touch actions, local video seeking, no streaming fallback on failure, and stop-before-delete. **These checks do not validate the New 3DS hardware decoder or a live Jellyfin transcode.** See the package's TEST-OFFLINE.txt for the console procedure.
 
 
-## Updates — touch-0.4.1
+## Updates — touch-0.4.2
 
 In Settings, select or touch **Update**. The first press checks the latest public release from `the-chilly/jellyfin-touch-3ds`. If a newer version is available, press it again to install. B cancels a check or download. The app verifies the published SHA-256 digest, exact file size and 3DSX header before installing. Invalid or cancelled downloads leave the current executable intact. The previous executable is retained as `jellyfin-3ds.3dsx.bak`; exit and reopen through the Homebrew Launcher after installation. Keep the app in `/3ds/jellyfin-3ds/jellyfin-3ds.3dsx` for this updater. Login, cache, DSP firmware and settings are preserved. This button updates the 3DSX executable; CIA installations are not supported.
 

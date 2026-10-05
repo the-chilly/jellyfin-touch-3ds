@@ -17,7 +17,7 @@ def run(*args, cwd=None):
 def compile_test(destination, sources, extra=()):
     run('clang', '-std=c11', '-Wall', '-Wextra', '-Werror',
         '-Wno-unused-variable', '-Wno-deprecated-declarations',
-        '-DJFIN_VERSION="touch-0.4.1"', '-I' + str(ROOT / 'tests/host'),
+        '-DJFIN_VERSION="touch-0.4.2"', '-I' + str(ROOT / 'tests/host'),
         '-I' + str(ROOT / 'include'), '-I' + str(ROOT / 'include/api'), *extra,
         *(str(ROOT / s) for s in sources), '-lcurl', '-lm', '-pthread', '-o', str(destination))
 
@@ -31,7 +31,7 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         self.reply({'AccessToken': 'test-token', 'User': {'Id': 'user-id'}})
     def do_GET(self):
         if self.path in ('/update/release','/update/asset'):
-            body=bytearray(1024);body[:8]=b'3DSX\x20\x00\x00\x00'
+            body=bytearray(1024);body[:8]=b'3DSX\x2c\x00\x08\x00'
             if self.path.endswith('release'):
                 self.reply({'tag_name':'v9.0.0','draft':False,'prerelease':False,'assets':[{'name':'jellyfin-3ds.3dsx','size':len(body),'digest':'sha256:'+hashlib.sha256(body).hexdigest(),'browser_download_url':'https://github.com/the-chilly/jellyfin-touch-3ds/releases/download/v9.0.0/jellyfin-3ds.3dsx'}]});return
             self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body);return
@@ -125,7 +125,7 @@ with tempfile.TemporaryDirectory(prefix='jellyfin-touch-test-') as folder:
     update_base=f'https://localhost:{server.server_port}/update'
     compile_test(temp/'update',['tests/test_update.c','src/util/update.c','src/util/sha256.c','src/util/net.c','src/api/cJSON.c'],['-DNET_CA_PATH="'+str(temp/'trusted.pem')+'"','-DUPDATE_API_ENDPOINT="'+update_base+'/release"','-DUPDATE_TEST_ASSET_URL="'+update_base+'/asset"','-DUPDATE_TARGET_PATH="app.3dsx"'])
     try:
-        update_asset=bytearray(1024);update_asset[:8]=b'3DSX\x20\x00\x00\x00'
+        update_asset=bytearray(1024);update_asset[:8]=b'3DSX\x2c\x00\x08\x00'
         run(str(temp/'update'),update_base,hashlib.sha256(update_asset).hexdigest(),cwd=temp)
         run(str(temp/'downloads'),f'https://localhost:{server.server_port}/jellyfin',str(ROOT/'tests/fixtures/movie.ts'),str(ROOT/'tests/fixtures/song.mp3'),cwd=temp)
         import shutil

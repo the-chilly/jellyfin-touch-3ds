@@ -7,6 +7,7 @@
 #include "util/update.h"
 #include "util/sha256.h"
 #include "util/net.h"
+void log_write(const char *fmt,...){(void)fmt;}
 static bool cancelled(uint64_t b,uint64_t t,void *ctx){(void)b;(void)t;(void)ctx;return false;}
 static void read_file(const char *path,char *out,size_t capacity){FILE *f=fopen(path,"rb");assert(f);size_t n=fread(out,1,capacity-1,f);out[n]=0;fclose(f);}
 static void vector(const char *text,size_t n,const char *expected){jfin_sha256_t h;jfin_sha256_init(&h);for(size_t i=0;i<n;i++)jfin_sha256_update(&h,text+i,1);unsigned char digest[32];char hex[65];jfin_sha256_finish(&h,digest);for(int i=0;i<32;i++)snprintf(hex+i*2,3,"%02x",digest[i]);assert(!strcmp(hex,expected));}

@@ -1,5 +1,6 @@
 #include "util/update.h"
 #include "util/net.h"
+#include "util/log.h"
 #include "util/sha256.h"
 #include "api/cJSON.h"
 #include <stdio.h>
@@ -82,7 +83,10 @@ bool update_check(update_info_t *out,update_progress_t progress,void *context,ch
 static bool header_valid(const request_t *r){
  if(r->header_count<32||memcmp(r->header,"3DSX",4))return false;
  unsigned header=r->header[4]|(unsigned)r->header[5]<<8;
- return header>=32 && header<=r->count && r->header[6]==0 && r->header[7]==0;
+ /* Offset 6 is relocation-header size; format version is the word at 8. */
+ unsigned relocation=r->header[6]|(unsigned)r->header[7]<<8;
+ return header>=32 && header<=r->count && relocation==8 &&
+     r->header[8]==0 && r->header[9]==0 && r->header[10]==0 && r->header[11]==0;
 }
 bool update_install(const update_info_t *info,update_progress_t progress,void *context,char *message,size_t length){
  /* Revalidate the URL and metadata even if the caller supplies its own object. */
@@ -100,6 +104,7 @@ bool update_install(const update_info_t *info,update_progress_t progress,void *c
  CURLcode result=fetch(url,&r,true,&http);bool disk=fflush(r.file)==0;if(fclose(r.file)!=0)disk=false;
  unsigned char digest[32];char hex[65];jfin_sha256_finish(&r.hash,digest);for(int i=0;i<32;i++)snprintf(hex+i*2,3,"%02x",digest[i]);
  bool ok=result==CURLE_OK&&http==200&&disk&&r.count==info->size&&header_valid(&r)&&!strcmp(hex,info->sha256);
+ log_write("UPDATE: curl=%d HTTP=%ld received=%llu expected=%llu disk=%d header=%d hash=%d",(int)result,http,(unsigned long long)r.count,(unsigned long long)info->size,disk,header_valid(&r),!strcmp(hex,info->sha256));
  if(!ok){remove(part);snprintf(message,length,"%s",result==CURLE_ABORTED_BY_CALLBACK?"Update cancelled. Current app kept.":"Update failed verification. Current app kept.");return false;}
  struct stat st;bool had_app=stat(UPDATE_TARGET_PATH,&st)==0;
  if(had_app){
