@@ -10,6 +10,9 @@
 #include <math.h>
 #include "util/net.h"
 #include "util/log.h"
+#include <3ds.h>
+
+#define DOWNLOAD_BUFFER_SIZE (64 * 1024)
 void download_key(const jfin_session_t *s,const char *id,char key[24]) {
     char art[24];cache_art_key(s->server_url,s->user_id,id,art,sizeof(art));
     snprintf(key,24,"dl-%s",art+4);
@@ -100,18 +103,22 @@ bool download_delete(const download_t *d) {
     char path[512];if(cache_path(d->key,"json",path,sizeof(path)))remove(path);return true;
 }
 
-typedef struct { FILE *file; uint64_t bytes,total; unsigned char prefix[3]; size_t prefix_len; download_progress_t progress; void *context; } transfer_t;
+typedef struct { FILE *file; unsigned char *file_buffer; uint64_t bytes,total,write_ms,ui_ms,chunks; unsigned char prefix[3]; size_t prefix_len; download_progress_t progress; void *context; } transfer_t;
 static size_t write_media(void *data,size_t size,size_t count,void *context) {
     transfer_t *t=context;if(size && count>SIZE_MAX/size)return 0;size_t n=size*count;
     if(n>0xf0000000ULL-t->bytes)return 0;
     for(size_t i=0;i<n && t->prefix_len<3;i++)t->prefix[t->prefix_len++]=((unsigned char *)data)[i];
-    size_t written=fwrite(data,1,n,t->file);t->bytes+=written;return written;
+    u64 begin=osGetTime();
+    size_t written=fwrite(data,1,n,t->file);
+    t->write_ms+=osGetTime()-begin;t->chunks++;t->bytes+=written;return written;
 }
 static int progress_media(void *context,curl_off_t total,curl_off_t now,curl_off_t up,curl_off_t uploaded) {
     (void)now;(void)up;(void)uploaded;transfer_t *t=context;t->total=total>0?(uint64_t)total:0;return 0;
 }
 static bool pump_media(void *context) {
-    transfer_t *t=context;return !t->progress || t->progress(t->bytes,t->total,t->context);
+    transfer_t *t=context;u64 begin=osGetTime();
+    bool keep_running=!t->progress || t->progress(t->bytes,t->total,t->context);
+    t->ui_ms+=osGetTime()-begin;return keep_running;
 }
 bool download_transfer(const jfin_session_t *s,const jfin_item_details_t *d,const char *url,download_progress_t progress,void *context) {
     if(d->item.type!=JFIN_ITEM_AUDIO && d->item.type!=JFIN_ITEM_MOVIE && d->item.type!=JFIN_ITEM_EPISODE)return false;
@@ -119,8 +126,15 @@ bool download_transfer(const jfin_session_t *s,const jfin_item_details_t *d,cons
     char key[24],part[512],path[512];download_key(s,d->item.id,key);const char *ext=download_ext(&d->item);
     if(!cache_path(key,ext,path,sizeof(path)) || !cache_part_path(key,ext,part,sizeof(part)))return false;
     transfer_t t={.progress=progress,.context=context};t.file=fopen(part,"wb");if(!t.file)return false;
-    CURL *curl=curl_easy_init();if(!curl){fclose(t.file);remove(part);return false;}
+    /* Batch FAT/FS writes rather than relying on newlib's small default buffer.
+     * Keep the buffer alive until fclose; allocation failure uses the default. */
+    t.file_buffer=malloc(DOWNLOAD_BUFFER_SIZE);
+    if(t.file_buffer && setvbuf(t.file,(char *)t.file_buffer,_IOFBF,DOWNLOAD_BUFFER_SIZE)!=0){
+        free(t.file_buffer);t.file_buffer=NULL;
+    }
+    CURL *curl=curl_easy_init();if(!curl){fclose(t.file);free(t.file_buffer);remove(part);return false;}
     net_configure(curl);curl_easy_setopt(curl,CURLOPT_URL,url);
+    curl_easy_setopt(curl,CURLOPT_BUFFERSIZE,(long)DOWNLOAD_BUFFER_SIZE);
     curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,write_media);curl_easy_setopt(curl,CURLOPT_WRITEDATA,&t);
     curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT,15L);curl_easy_setopt(curl,CURLOPT_LOW_SPEED_LIMIT,1L);
     curl_easy_setopt(curl,CURLOPT_LOW_SPEED_TIME,60L);curl_easy_setopt(curl,CURLOPT_NOPROGRESS,0L);
@@ -133,7 +147,18 @@ bool download_transfer(const jfin_session_t *s,const jfin_item_details_t *d,cons
         (t.prefix_len>=3 && ((!memcmp(t.prefix,"ID3",3)) || (t.prefix[0]==0xff && (t.prefix[1]&0xe0)==0xe0))):
         (t.prefix_len>=1 && t.prefix[0]==0x47);
     ok=ok&&container;
-    curl_easy_cleanup(curl);if(fflush(t.file)!=0)ok=false;if(fclose(t.file)!=0)ok=false;
+    double total_seconds=0,first_byte_seconds=0;
+    curl_easy_getinfo(curl,CURLINFO_TOTAL_TIME,&total_seconds);
+    curl_easy_getinfo(curl,CURLINFO_STARTTRANSFER_TIME,&first_byte_seconds);
+    curl_easy_cleanup(curl);
+    u64 flush_begin=osGetTime();
+    if(fflush(t.file)!=0)ok=false;if(fclose(t.file)!=0)ok=false;
+    t.write_ms+=osGetTime()-flush_begin;
+    log_write("DL: perf total_ms=%llu first_byte_ms=%llu file_write_ms=%llu ui_ms=%llu chunks=%llu sd_buffer=%u rx_buffer=%u",
+        (unsigned long long)(total_seconds*1000),(unsigned long long)(first_byte_seconds*1000),
+        (unsigned long long)t.write_ms,(unsigned long long)t.ui_ms,(unsigned long long)t.chunks,
+        t.file_buffer?DOWNLOAD_BUFFER_SIZE:0,DOWNLOAD_BUFFER_SIZE);
+    free(t.file_buffer);
     if(ok)ok=rename(part,path)==0;
     if(ok){cache_index_add(key,ext);ok=download_save(s,d);if(!ok)cache_remove(key,ext);}
     if(!ok)remove(part);

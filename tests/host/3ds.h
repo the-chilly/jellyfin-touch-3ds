@@ -30,7 +30,11 @@ enum { KEY_A=1, KEY_B=2, KEY_X=4, KEY_Y=8, KEY_DUP=16, KEY_DDOWN=32,
 enum { SWKBD_TYPE_WESTERN, SWKBD_BUTTON_CONFIRM, SWKBD_PASSWORD_HIDE_DELAY,
  GFX_TOP, GFX_BOTTOM, GFX_LEFT, GFX_RIGHT };
 static inline u64 svcGetSystemTick(void) { static u64 t; return ++t; }
+#ifdef HOST_REAL_CLOCK
+static inline u64 osGetTime(void) { struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (u64)t.tv_sec*1000+(u64)t.tv_nsec/1000000; }
+#else
 static inline u64 osGetTime(void) { return 0; }
+#endif
 static inline float osGet3DSliderState(void) { return 0; }
 static inline void svcSleepThread(s64 n) { struct timespec ts={n/1000000000LL,n%1000000000LL}; nanosleep(&ts,NULL); }
 #ifdef HOST_APT_CLOSE

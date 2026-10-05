@@ -91,6 +91,7 @@ The 3DSX updater verifies the download's SHA-256 hash, size, and file header, an
 - **Private CA/self-signed server:** add your trusted PEM CA certificate to `/3ds/jellyfin-3ds/cacert.pem`. An SD bundle takes precedence over the CIA's bundled certificates.
 - **Certificate errors:** check the console's date/time and use the hostname covered by your certificate. Certificate verification stays enabled.
 - **Stalled artwork or information:** press **L** to refresh. Failed requests retry automatically; missing metadata depends on your Jellyfin library.
+- **Slow downloads:** the latest build batches SD writes and records transfer timings. Run a download for about 30 seconds, cancel or finish it, then save `debug.log` before restarting. See [download diagnostics](docs/development.md#investigating-download-throughput).
 - **Persistent loading or exit problems:** reproduce the issue and copy `/3ds/jellyfin-3ds/debug.log` before launching again. Each launch resets the log.
 
 The public certificate bundle comes from [curl's Mozilla CA extract](https://curl.se/docs/caextract.html).
