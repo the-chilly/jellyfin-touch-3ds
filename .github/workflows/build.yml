@@ -55,7 +55,7 @@ jobs:
         run: bash lib/ffmpeg/build-ffmpeg.sh
 
       - name: Build .3dsx
-        run: make -j"$(nproc)" JFIN_VERSION=touch-0.5.1
+        run: make -j"$(nproc)" JFIN_VERSION=touch-0.5.2
 
       - name: Build CIA
         run: bash ./build-cia.sh --container

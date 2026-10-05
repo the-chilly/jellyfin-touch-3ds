@@ -3,7 +3,7 @@ BasicInfo:
   CompanyCode             : "00"
   ProductCode             : "CTR-HB-JFIN"
   ContentType             : Application
-  Logo                    : None
+  Logo                    : Homebrew
 
 RomFs:
   RootPath                : dist/romfs

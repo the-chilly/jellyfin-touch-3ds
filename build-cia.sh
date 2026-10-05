@@ -11,7 +11,7 @@ fi
 cia_sha256() {
     if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi
 }
-CIA_RELEASE_VERSION="${CIA_RELEASE_VERSION:-0.5.1}"
+CIA_RELEASE_VERSION="${CIA_RELEASE_VERSION:-0.5.2}"
 CIA_RELEASE_VERSION="${CIA_RELEASE_VERSION#v}"
 [[ "$CIA_RELEASE_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || { echo "Invalid CIA release version" >&2; exit 1; }
 CIA_MAJOR="${BASH_REMATCH[1]}"; CIA_MINOR="${BASH_REMATCH[2]}"; CIA_MICRO="${BASH_REMATCH[3]}"
@@ -43,6 +43,7 @@ cp cacert.pem dist/romfs/cacert.pem
 "$TOOLS/makerom" -f cia -o jellyfin-3ds.cia.part -elf jellyfin-3ds.elf \
     -rsf app.rsf -icon jellyfin-3ds.smdh -banner banner.bnr -target t \
     -ver "$CIA_PACKED_VERSION"
+python3 tools/verify_cia.py jellyfin-3ds.cia.part
 mv jellyfin-3ds.cia.part jellyfin-3ds.cia
 cia_sha256 jellyfin-3ds.cia
 echo 'CIA built. Install with FBI on a New 3DS/New 2DS with custom firmware.'
