@@ -38,6 +38,14 @@ def verify(path):
     def check_hash(body, expected, label):
         require(hashlib.sha256(body).digest() == expected, f'{label} hash mismatch')
 
+    # Kernel OtherCapabilities descriptor: device-memory sharing bit 6.
+    # Check both the runtime capabilities and their access-descriptor mirror.
+    for caps_offset in (0x570, 0x970):
+        caps = struct.unpack_from('<28I', ncch, caps_offset)
+        flags = [word for word in caps if word & 0xFF800000 == 0xFF000000]
+        require(len(flags) == 1 and flags[0] & (1 << 6),
+                'MVD requires shared device memory permission')
+
     logo = region(0x198, 'HOME Menu launch logo')
     check_hash(logo, ncch[0x130:0x150], 'Launch logo')
     check_hash(ncch[0x200:0x200 + u32(0x180)], ncch[0x160:0x180], 'Extended header')

@@ -29,7 +29,7 @@ AccessControlInfo:
   CanWriteSharedPage            : true
   CanUsePrivilegedPriority      : false
   PermitMainFunctionArgument    : true
-  CanShareDeviceMemory          : false
+  CanShareDeviceMemory          : true
   RunnableOnSleep               : false
   SpecialMemoryArrange          : true
   CoreVersion                   : 2
