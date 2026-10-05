@@ -50,7 +50,7 @@ static void init_services(void)
     C2D_Prepare();
 
     /* Filesystem (for SD card config/cache) */
-    /* romfsInit() if we have bundled assets */
+    romfsInit(); /* CIA bundles the public CA certificates; 3DSX uses SD. */
 }
 
 static void cleanup_services(void)
@@ -59,6 +59,7 @@ static void cleanup_services(void)
     log_write("EXIT: C3D");C3D_Fini();
     log_write("EXIT: NDSP");ndspExit();
     log_write("EXIT: sockets");socExit();
+    romfsExit();
     log_write("EXIT: graphics");gfxExit();
 }
 

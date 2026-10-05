@@ -1,0 +1,28 @@
+diff --git a/makerom/src/user_settings.c b/makerom/src/user_settings.c
+index c0d78f9..ed50e1e 100644
+--- a/makerom/src/user_settings.c
++++ b/makerom/src/user_settings.c
+@@ -933,7 +933,7 @@ void PrintNoNeedParam(char *arg)
+ 
+ void DisplayBanner(void)
+ {
+-	printf("%s v%d.%d.%d (C) %s\n", APP_NAME, VER_MAJOR, VER_MINOR, VER_PATCH, AUTHORS);
++	printf("%s v%d.%d.%d (C) %s\n", APP_NAME, TOOL_VER_MAJOR, TOOL_VER_MINOR, TOOL_VER_PATCH, AUTHORS);
+ 	printf("Built: %s %s\n\n", __TIME__, __DATE__);
+ }
+ 
+diff --git a/makerom/src/version.h b/makerom/src/version.h
+index c668ce7..b7bed43 100644
+--- a/makerom/src/version.h
++++ b/makerom/src/version.h
+@@ -1,7 +1,7 @@
+ #pragma once
+ #define APP_NAME	"CTR MAKEROM"
+ #define BIN_NAME	"makerom"
+-#define VER_MAJOR	0
+-#define VER_MINOR	19
+-#define VER_PATCH	0
++#define TOOL_VER_MAJOR	0
++#define TOOL_VER_MINOR	19
++#define TOOL_VER_PATCH	0
+ #define AUTHORS		"3DSGuy"

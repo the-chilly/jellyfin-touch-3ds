@@ -429,7 +429,18 @@ static bool update_ui_progress(uint64_t bytes,uint64_t total,void *context) {
     hidScanInput();if(hidKeysDown()&KEY_B)return false;
     draw_wait_frame(NULL);return !s_ui_exiting;
 }
+static bool ui_cia_installation(void) {
+#ifdef __3DS__
+    return !envIsHomebrew();
+#else
+    return false;
+#endif
+}
 static void ui_update_app(ui_state_t *state) {
+    if(ui_cia_installation()){
+        snprintf(state->message,sizeof(state->message),"CIA updates: scan the latest release QR in FBI.");
+        return;
+    }
     if(s_update_installed){snprintf(state->message,sizeof(state->message),"Update installed. Exit and reopen the app.");return;}
     if(s_update.available){
         audio_player_stop();video_player_stop();state->has_now_playing=false;state->auto_stopped=true;
@@ -1693,7 +1704,8 @@ void ui_render_settings(const ui_state_t *state, const jfin_session_t *session)
             break;
         case SET_UPDATE:
             label="Update";
-            if(s_update_installed)snprintf(value,sizeof(value),"Restart app");
+            if(ui_cia_installation())snprintf(value,sizeof(value),"A: CIA update help");
+            else if(s_update_installed)snprintf(value,sizeof(value),"Restart app");
             else if(s_update.available)snprintf(value,sizeof(value),"A: Install %.20s",s_update.version);
             else snprintf(value,sizeof(value),"A: Check for updates");
             break;

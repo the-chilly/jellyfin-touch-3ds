@@ -1,10 +1,19 @@
 #include "util/net.h"
+#ifdef __3DS__
+#include <sys/stat.h>
+#endif
 
 void net_configure(CURL *curl)
 {
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-    curl_easy_setopt(curl, CURLOPT_CAINFO, NET_CA_PATH);
+    const char *ca_path = NET_CA_PATH;
+#ifdef __3DS__
+    struct stat ca;
+    /* Preserve user-installed private CAs. CIA installs need no separate SD bundle. */
+    if (stat(NET_CA_PATH, &ca) != 0) ca_path = "romfs:/cacert.pem";
+#endif
+    curl_easy_setopt(curl, CURLOPT_CAINFO, ca_path);
 #if LIBCURL_VERSION_NUM >= 0x075500
     curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
 #else

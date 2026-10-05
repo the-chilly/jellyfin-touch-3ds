@@ -2,7 +2,7 @@
 
 A personal homebrew adaptation of [bogocat/jellyfin-3ds](https://github.com/bogocat/jellyfin-3ds), based on commit `05bfa02f131d13f163bc7091d18af3b5b84f0820`. Licensed under GPL-3.0; upstream LICENSE and credits are preserved. This is an unofficial Jellyfin client.
 
-**Status: the devkitARM build succeeded and host tests pass.** A compiled `.3dsx` is provided in the separate SD-card package. This adaptation has not been tested on a physical 3DS; playback, rendering and real SD-card behavior remain unverified. No CIA installer is provided.
+**Status: the devkitARM build succeeded and host tests pass.** A compiled `.3dsx` is provided in the separate SD-card package. This adaptation has not been tested on a physical 3DS; playback, rendering and real SD-card behavior remain unverified. A `.cia` installer with an FBI download QR is also provided.
 
 ## Features
 
@@ -46,7 +46,7 @@ Settings are stored in `sdmc:/3ds/jellyfin-3ds/config.ini`, with a `.bak` recove
 
 ## HTTPS setup
 
-Copy the included `cacert.pem` to **`sdmc:/3ds/jellyfin-3ds/cacert.pem`** alongside the executable. This is the public CA bundle downloaded from [curl's Mozilla CA extract](https://curl.se/docs/caextract.html). Update it from that source when necessary. Certificate checking follows [curl's verification guidance](https://curl.se/docs/sslcerts.html).
+CIA installations include this public CA bundle in the application. A custom SD bundle takes precedence. For Homebrew Launcher installations, copy the included `cacert.pem` to **`sdmc:/3ds/jellyfin-3ds/cacert.pem`** alongside the executable. This is the public CA bundle downloaded from [curl's Mozilla CA extract](https://curl.se/docs/caextract.html). Update it from that source when necessary. Certificate checking follows [curl's verification guidance](https://curl.se/docs/sslcerts.html).
 
 For a private CA or self-signed server, append your trusted PEM CA certificate to that bundle. Use the DNS hostname covered by the certificate, and set the console's date/time correctly. The client never falls back to disabling certificate verification.
 
@@ -95,7 +95,7 @@ Passed here:
 
 The application also compiled and linked successfully for ARM with the pinned devkitPro Docker environment. The build retains upstream FFmpeg enum-size linker notices; those are documented here rather than suppressed. The tests do **not** validate real SD-card behavior, Nintendo rendering, decoder performance, Jellyfin transcoding compatibility or actual A/V sync. Real hardware testing must cover a movie, several TV episodes, music, saved login after reboot, and at least ten consecutive seeks. Upstream has reported repeated-seek video issues; this adaptation does not claim to have resolved every decoder/transcode issue.
 
-The server must permit transcoding and have a working FFmpeg installation. The existing video path requests small H.264/AAC MPEG-TS streams for the console. Old 3DS video, subtitle selection and a verified CIA installer are outside this adaptation.
+The server must permit transcoding and have a working FFmpeg installation. The existing video path requests small H.264/AAC MPEG-TS streams for the console. Old 3DS video and subtitle selection are outside this adaptation. CIA installation and launch still need testing on hardware.
 
 ## Credits
 
@@ -113,9 +113,9 @@ After a failed server connection at startup, saved titles for the remembered ser
 The host tests download a real 20-second generated H.264/AAC test movie and an MP3 over trusted HTTPS, compare their saved bytes, reopen metadata after cache initialization, and verify rejection/cancellation cases. The saved movie is decoded with audio and sought to 10 seconds using host FFmpeg. UI tests confirm touch actions, local video seeking, no streaming fallback on failure, and stop-before-delete. **These checks do not validate the New 3DS hardware decoder or a live Jellyfin transcode.** See the package's TEST-OFFLINE.txt for the console procedure.
 
 
-## Updates — touch-0.5.0
+## Updates — touch-0.5.1
 
-In Settings, select or touch **Update**. The first press checks the latest public release from `the-chilly/jellyfin-touch-3ds`. If a newer version is available, press it again to install. B cancels a check or download. The app verifies the published SHA-256 digest, exact file size and 3DSX header before installing. Invalid or cancelled downloads leave the current executable intact. The previous executable is retained as `jellyfin-3ds.3dsx.bak`; exit and reopen through the Homebrew Launcher after installation. Keep the app in `/3ds/jellyfin-3ds/jellyfin-3ds.3dsx` for this updater. Login, cache, DSP firmware and settings are preserved. This button updates the 3DSX executable; CIA installations are not supported.
+In Settings, select or touch **Update**. The first press checks the latest public release from `the-chilly/jellyfin-touch-3ds`. If a newer version is available, press it again to install. B cancels a check or download. The app verifies the published SHA-256 digest, exact file size and 3DSX header before installing. Invalid or cancelled downloads leave the current executable intact. The previous executable is retained as `jellyfin-3ds.3dsx.bak`; exit and reopen through the Homebrew Launcher after installation. Keep the app in `/3ds/jellyfin-3ds/jellyfin-3ds.3dsx` for this updater. Login, cache, DSP firmware and settings are preserved. For a CIA installation, the button displays update instructions: install the latest CIA through FBI using the release QR. It does not overwrite an unrelated Homebrew Launcher executable.
 
 Update requests use verified HTTPS without sending Jellyfin credentials. GitHub's latest-release API supplies release metadata and asset hashes ([API reference](https://docs.github.com/en/rest/releases/releases)). GitHub rate limits or missing network/certificates display an error. Update checks are manual. A release without the expected executable/hash is rejected. This is still an experimental build pending hardware testing.
 
@@ -131,3 +131,13 @@ Host tests verify bookmark persistence/clearing, account isolation, touch contro
 ![Playback controls preview](docs/playback-blue-preview.png)
 
 Preview rendered from production UI draw calls on the host; console fonts may differ.
+
+## HOME Menu installation (CIA)
+
+On a New 3DS or New 2DS with custom firmware and FBI, open **FBI → Remote Install → Scan QR Code** and scan the QR in the [v0.5.1 release](https://github.com/the-chilly/jellyfin-touch-3ds/releases/tag/v0.5.1). It links directly to `jellyfin-3ds.cia`. Alternatively, copy the CIA to the SD card and install it from FBI. Launch **Jellyfin Touch** on the HOME Menu. Audio still requires your console's dumped `/3ds/dspfirm.cdc`; no copyrighted firmware is bundled.
+
+The CIA shares the existing `/3ds/jellyfin-3ds/` settings and download folder, so URL, login token and offline progress are retained. Public HTTPS certificates are bundled; an existing `cacert.pem` on SD takes precedence for private CAs. Future CIA updates use FBI and the latest release QR; the automatic executable replacement remains available to Homebrew Launcher users.
+
+Build the ARM executable with `./build.sh`, then run `./build-cia.sh`. The packaging script pins and verifies official makerom/bannertool downloads, includes an icon/banner, requests New 3DS memory and MVD access, and bundles the CA file. Packaging builds pinned makerom 0.19.0 source with the small `tools/makerom-version.patch` namespace fix (the published tool silently drops the minor title version). Bannertool 1.2.2 is pinned; Apple Silicon requires Rosetta for bannertool. Title ID: `000400000F4A3100`, version `0.5.1`.
+
+CIA content, executable/icon/banner hashes and RomFS hashes were checked with ctrtool 1.3.0, and the extracted certificates match the source. Homebrew test signatures require custom firmware. Physical-console installation, HOME Menu launch, HTTPS and playback remain unverified.

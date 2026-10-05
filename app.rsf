@@ -1,12 +1,15 @@
 BasicInfo:
-  Title                   : "Jellyfin 3DS"
+  Title                   : "Jellyfin Touch"
   CompanyCode             : "00"
   ProductCode             : "CTR-HB-JFIN"
   ContentType             : Application
   Logo                    : None
 
+RomFs:
+  RootPath                : dist/romfs
+
 TitleInfo:
-  UniqueId                : 0xF3D5
+  UniqueId                : 0xF4A31
   Category                : Application
 
 Option:
@@ -27,12 +30,25 @@ AccessControlInfo:
   CanUsePrivilegedPriority      : false
   PermitMainFunctionArgument    : true
   CanShareDeviceMemory          : false
-  RunnableOnSleep               : true
-  SpecialMemoryArrange          : false
+  RunnableOnSleep               : false
+  SpecialMemoryArrange          : true
   CoreVersion                   : 2
   DescVersion                   : 2
 
   MemoryType                    : Application
+  SystemModeExt                 : 124MB
+  CpuSpeed                      : 804MHz
+  EnableL2Cache                 : true
+  CanAccessCore2                : true
+  ReleaseKernelMajor            : "02"
+  ReleaseKernelMinor            : "33"
+  FileSystemAccess:
+    - DirectSdmc
+    - DirectSdmcWrite
+  IORegisterMapping:
+    - 1ff00000-1ff7ffff
+  MemoryMapping:
+    - 1f000000-1f5fffff:r
   SystemMode                    : 64MB
   HandleTableSize               : 0x200
 
@@ -123,3 +139,15 @@ SystemControlInfo:
   SaveDataSize            : 0KB
   RemasterVersion         : 0
   StackSize               : 0x100000
+
+  Dependency:
+    ac: 0x0004013000002402
+    am: 0x0004013000001502
+    cfg: 0x0004013000001702
+    dsp: 0x0004013000001a02
+    gsp: 0x0004013000001c02
+    hid: 0x0004013000001d02
+    nwm: 0x0004013000002d02
+    ptm: 0x0004013000002202
+    socket: 0x0004013000002e02
+    mvd: 0x0004013020004102

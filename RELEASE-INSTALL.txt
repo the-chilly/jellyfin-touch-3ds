@@ -20,7 +20,11 @@ Downloads: select a saved title, A/touch Play offline; X/touch Delete.
            See TEST-OFFLINE.txt and the separately supplied test movie.
 Playback: tap/drag the bottom-screen timeline, then release to seek.
           A pauses; L/R skip 30 seconds; X stops; B goes back.
-Settings: Update checks releases. Press again to install a newer version; B cancels.
+CIA installation: use FBI -> Remote Install -> Scan QR Code with the release QR.
+The CIA bundles public HTTPS certificates and appears on the HOME Menu.
+DSP firmware is still required. CIA updates are installed through FBI.
+
+Settings: Update checks releases for the Homebrew Launcher executable. Press again to install a newer version; B cancels.
           After installation, exit and reopen. The previous .3dsx is backed up.
 START exits. Down hides playback controls; Up shows them again.
 
