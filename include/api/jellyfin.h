@@ -51,16 +51,29 @@ typedef struct {
     char name[JFIN_MAX_NAME];
     char album[JFIN_MAX_NAME];       /* for audio tracks */
     char artist[JFIN_MAX_NAME];      /* for audio tracks / albums */
+    char series_id[JFIN_MAX_ID];
+    bool has_series_image;
     char series_name[JFIN_MAX_NAME]; /* for episodes */
     jfin_item_type_t type;
     int  year;
+    int  season_number;
     int  index_number;               /* track/episode number */
     char album_id[JFIN_MAX_ID];      /* for album art fallback on audio tracks */
     int64_t runtime_ticks;           /* duration in 10M ticks */
+    int64_t resume_ticks;            /* saved user position */
     bool has_primary_image;
     bool has_album_image;            /* album has art (for audio track fallback) */
     jfin_3d_format_t video_3d_format; /* stereoscopic 3D format (SBS/TAB) */
 } jfin_item_t;
+
+typedef struct {
+    jfin_item_t item;
+    char overview[2048];
+    char genres[192];
+    char official_rating[32];
+    double community_rating;
+    int64_t resume_ticks;
+} jfin_item_details_t;
 
 typedef struct {
     jfin_item_t items[JFIN_MAX_ITEMS];
@@ -158,6 +171,17 @@ bool jfin_get_latest(const jfin_session_t *session, const char *parent_id,
 bool jfin_search(const jfin_session_t *session, const char *query,
                  int limit, jfin_item_list_t *out);
 
+/* Fetch full metadata on demand, without bloating the paginated list. */
+bool jfin_get_item_details(const jfin_session_t *session, const char *item_id,
+                           jfin_item_details_t *out);
+const char *jfin_last_error(void);
+/* Worker-safe GETs use independent curl handles and never write last_error. */
+bool jfin_get_item_details_background(const jfin_session_t *session,
+                                      const char *item_id, jfin_item_details_t *out);
+/* 0=resume, 1=movies, 2=series, 3=albums, 4=recent. */
+bool jfin_get_home_shelf(const jfin_session_t *session, int shelf,
+                         jfin_item_list_t *out);
+
 /* ── Streaming ─────────────────────────────────────────────────────── */
 
 /**
@@ -205,6 +229,11 @@ bool jfin_report_progress(const jfin_session_t *session, const char *item_id,
  */
 bool jfin_report_stop(const jfin_session_t *session, const char *item_id,
                       int64_t position_ticks);
+
+/* Main-thread foreground request pump. Never called by background GETs.
+ * The callback may render, but must not issue another Jellyfin request. */
+void jfin_cancel_requests(void); /* application shutdown only */
+void jfin_set_wait_callback(void (*callback)(void *), void *context);
 
 #ifdef __cplusplus
 }

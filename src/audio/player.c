@@ -109,7 +109,7 @@ static struct {
     Thread          net_thread;
     Thread          decode_thread;
     volatile bool   running;
-    volatile bool   stop_requested;
+    bool            stop_requested;
 
     /* State */
     player_state_t  state;
@@ -140,17 +140,23 @@ static struct {
 /* ── cURL write callback (feeds ring buffer) ───────────────────────── */
 
 #include <curl/curl.h>
+#include "util/net.h"
+
+static bool audio_stopping(void)
+{ return __atomic_load_n(&s_player.stop_requested,__ATOMIC_ACQUIRE); }
+void audio_player_request_stop(void)
+{ __atomic_store_n(&s_player.stop_requested,true,__ATOMIC_RELEASE); }
 
 static size_t stream_write_cb(void *ptr, size_t size, size_t nmemb, void *userdata)
 {
     ring_buffer_t *rb = (ring_buffer_t *)userdata;
     size_t total = size * nmemb;
 
-    if (s_player.stop_requested) return 0; /* abort transfer */
+    if (audio_stopping()) return 0; /* abort transfer */
 
     /* Block briefly if buffer is full */
     size_t written = 0;
-    while (written < total && !s_player.stop_requested) {
+    while (written < total && !audio_stopping()) {
         int n = ring_write(rb, (u8 *)ptr + written, total - written);
         written += n;
         if (written < total)
@@ -175,7 +181,7 @@ static void local_file_to_ring(const char *path)
     }
 
     u8 buf[8192];
-    while (!s_player.stop_requested) {
+    while (!audio_stopping()) {
         size_t n = fread(buf, 1, sizeof(buf), f);
         if (n == 0) {
             /* Distinguish a real SD read error (bad sector, card pulled)
@@ -189,7 +195,7 @@ static void local_file_to_ring(const char *path)
             break;
         }
         size_t written = 0;
-        while (written < n && !s_player.stop_requested) {
+        while (written < n && !audio_stopping()) {
             written += ring_write(&s_player.ring, buf + written, n - written);
             if (written < n)
                 svcSleepThread(1000000LL); /* 1ms — ring full */
@@ -218,15 +224,14 @@ static void net_thread_func(void *arg)
     curl_easy_setopt(curl, CURLOPT_URL, s_player.url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, stream_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &s_player.ring);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    net_configure(curl);
     curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 32768L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Jellyfin-3DS/" JFIN_VERSION);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
 
-    CURLcode res = curl_easy_perform(curl);
+    CURLcode res = net_perform_cancelable(curl,&s_player.stop_requested);
 
-    if (res != CURLE_OK && !s_player.stop_requested) {
+    if (res != CURLE_OK && !audio_stopping()) {
         snprintf(s_player.error_msg, sizeof(s_player.error_msg),
                  "Stream error: %s", curl_easy_strerror(res));
         s_player.state = PLAYER_ERROR;
@@ -278,18 +283,18 @@ static void decode_thread_func(void *arg)
     (void)arg;
 
     /* Wait for initial buffer fill before starting playback */
-    while (!s_player.stop_requested) {
+    while (!audio_stopping()) {
         if (ring_fill_level(&s_player.ring) >= (int)AUDIO_PREFETCH_BYTES ||
             ring_is_finished(&s_player.ring))
             break;
         svcSleepThread(10000000LL); /* 10ms */
     }
 
-    if (s_player.stop_requested) return;
+    if (audio_stopping()) return;
 
     /* Probe stream format before queuing any audio.
      * Feed data until mpg123 reports the format, then set NDSP rate. */
-    while (!s_player.stop_requested) {
+    while (!audio_stopping()) {
         u8 probe_buf[4096];
         int avail = ring_read(&s_player.ring, probe_buf, sizeof(probe_buf));
         if (avail > 0)
@@ -308,13 +313,13 @@ static void decode_thread_func(void *arg)
         svcSleepThread(5000000LL); /* 5ms */
     }
 
-    if (s_player.stop_requested) return;
+    if (audio_stopping()) return;
 
     LightLock_Lock(&s_player.state_lock);
     s_player.state = PLAYER_PLAYING;
     LightLock_Unlock(&s_player.state_lock);
 
-    while (!s_player.stop_requested) {
+    while (!audio_stopping()) {
         /* Find a free wave buffer */
         ndspWaveBuf *wbuf = &s_player.wave_bufs[s_player.active_buf];
         if (wbuf->status == NDSP_WBUF_QUEUED || wbuf->status == NDSP_WBUF_PLAYING) {
@@ -347,7 +352,7 @@ static void decode_thread_func(void *arg)
         s_player.position_ticks += (int64_t)samples * 10000000LL / rate;
     }
 
-    if (!s_player.stop_requested) {
+    if (!audio_stopping()) {
         LightLock_Lock(&s_player.state_lock);
         s_player.state = PLAYER_STOPPED;
         LightLock_Unlock(&s_player.state_lock);
@@ -420,7 +425,7 @@ bool audio_player_play(const char *url, int64_t duration_ticks, int64_t seek_off
     s_player.duration_ticks = duration_ticks;
     s_player.position_ticks = seek_offset_ticks;
     s_player.error_msg[0] = '\0';
-    s_player.stop_requested = false;
+    __atomic_store_n(&s_player.stop_requested, false, __ATOMIC_RELEASE);
     s_player.active_buf = 0;
     s_player.sample_rate = AUDIO_SAMPLE_RATE;
     s_player.state = PLAYER_LOADING;
@@ -456,7 +461,7 @@ bool audio_player_play(const char *url, int64_t duration_ticks, int64_t seek_off
         /* Wind down whichever thread DID start and free the ring buffer,
          * otherwise a lone net thread keeps streaming into a ring nobody
          * drains and the 512KB ring leaks on every failed play. */
-        s_player.stop_requested = true;
+        __atomic_store_n(&s_player.stop_requested, true, __ATOMIC_RELEASE);
         if (s_player.net_thread) {
             threadJoin(s_player.net_thread, U64_MAX);
             threadFree(s_player.net_thread);
@@ -480,7 +485,7 @@ void audio_player_stop(void)
     if (s_player.state == PLAYER_STOPPED && !s_player.net_thread)
         return;
 
-    s_player.stop_requested = true;
+    __atomic_store_n(&s_player.stop_requested, true, __ATOMIC_RELEASE);
 
     /* Wait for threads to finish */
     if (s_player.net_thread) {

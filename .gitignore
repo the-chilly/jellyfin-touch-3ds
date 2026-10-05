@@ -19,3 +19,9 @@ lib/ffmpeg/*.a
 lib/ffmpeg/include/
 *.bnr
 *.cia
+
+# Generated packages, SD configuration and caches
+dist/
+sdmc:/
+__pycache__/
+*.part

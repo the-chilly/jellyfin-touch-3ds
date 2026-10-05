@@ -1,10 +1,13 @@
 name: release
 
-# Pushing a v* tag builds the .3dsx and attaches it to a GitHub release.
-#   git tag v1.1.0 && git push origin v1.1.0
+# Run this after creating a vX.Y.Z tag. Releases use a fixed updater asset name.
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v0.4.2'
+        required: true
+        type: string
 
 permissions:
   contents: write   # create the release + upload assets
@@ -16,10 +19,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # full history + tags for git-describe versioning
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
 
       - name: Install 3DS portlibs
         run: |
+          apt-get update -qq && apt-get install -y -qq zip
           dkp-pacman -S --noconfirm --needed \
             3ds-curl 3ds-mbedtls 3ds-zlib 3ds-mpg123 \
             3ds-libopus 3ds-opusfile 3ds-libvorbisidec 3ds-libogg
@@ -32,7 +37,7 @@ jobs:
           command -v git >/dev/null || { apt-get update -qq || true; apt-get install -y -qq git; }
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           echo "version will be: $(git describe --tags --always --dirty)"
-          git describe --tags --exact-match   # tag builds must be exactly on the tag
+          git describe --tags --exact-match
 
       # Same cache key as build.yml — tag builds reuse the FFmpeg libs
       # already built on main (caches on the default branch are visible
@@ -56,11 +61,19 @@ jobs:
       # No version sanity check needed anymore: JFIN_VERSION is derived
       # from git describe at build time, so a tag build bakes the tag.
 
-      - name: Stage versioned asset
-        run: cp jellyfin-3ds.3dsx "jellyfin-3ds-${GITHUB_REF_NAME}.3dsx"
+      - name: Stage SD package
+        run: |
+          mkdir -p dist/3ds/jellyfin-3ds
+          cp jellyfin-3ds.3dsx jellyfin-3ds.smdh cacert.pem dist/3ds/jellyfin-3ds/
+          cp LICENSE dist/
+          cp RELEASE-INSTALL.txt dist/INSTALL.txt
+          cd dist && zip -r ../jellyfin-touch-3ds-sd.zip .
 
       - name: Create release with asset
         uses: softprops/action-gh-release@v2
         with:
-          files: jellyfin-3ds-${{ github.ref_name }}.3dsx
+          tag_name: ${{ inputs.tag }}
+          files: |
+            jellyfin-3ds.3dsx
+            jellyfin-touch-3ds-sd.zip
           generate_release_notes: true

@@ -14,6 +14,7 @@
 #include <3ds.h>
 #include "api/jellyfin.h"
 #include "audio/player.h"
+#include "util/downloads.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,31 +26,34 @@ extern "C" {
 #define BOTTOM_SCREEN_HEIGHT 240
 
 #define UI_LIST_ITEM_HEIGHT  40
-#define UI_MAX_VISIBLE_ITEMS  5  /* (240 - 30 header - 20 footer) / 40 ≈ 5 */
+#define UI_MAX_VISIBLE_ITEMS  4  /* (240 - 30 header - 20 footer) / 40 ≈ 5 */
 #define UI_FONT_SIZE         14
 #define UI_FONT_SIZE_SMALL   11
 
 /* ── Colors (RGBA8) ──────────────────────────────────────────────── */
-#define COLOR_BG_DARK        0x1E1E2EFF   /* warmer dark background */
-#define COLOR_BG_CARD        0x2A2A3CFF   /* more contrast with bg */
-#define COLOR_PRIMARY        0x6C9BD2FF   /* muted steel blue */
-#define COLOR_TEXT_PRIMARY   0xE8E8E8FF   /* slightly brighter white */
-#define COLOR_TEXT_SECONDARY 0x9898A8FF   /* warmer mid-gray */
-#define COLOR_ACCENT         0xC084FCFF   /* soft lavender */
-#define COLOR_HIGHLIGHT      0x6C9BD230   /* matches primary, 19% alpha */
+#define COLOR_BG_DARK        0xE8E3DBFF   /* warmer dark background */
+#define COLOR_BG_CARD        0xFFF9F0FF   /* more contrast with bg */
+#define COLOR_PRIMARY        0xEF6B18FF   /* muted steel blue */
+#define COLOR_TEXT_PRIMARY   0x252A30FF   /* slightly brighter white */
+#define COLOR_TEXT_SECONDARY 0x59616AFF   /* warmer mid-gray */
+#define COLOR_ACCENT         0x9E4017FF   /* soft lavender */
+#define COLOR_HIGHLIGHT      0xF4B42FFF   /* matches primary, 19% alpha */
 
 /* Settings-specific colors */
-#define COLOR_SEPARATOR      0x3A3A4CFF   /* subtle divider lines */
-#define COLOR_VALUE          0xA8D8A8FF   /* muted green for values */
-#define COLOR_DANGER         0xE88888FF   /* soft red for logout */
+#define COLOR_SEPARATOR      0xD6D0C6FF   /* subtle divider lines */
+#define COLOR_VALUE          0x236E3DFF   /* muted green for values */
+#define COLOR_DANGER         0xAD3131FF   /* soft red for logout */
 
 /* ── Screens / Views ─────────────────────────────────────────────── */
 
 typedef enum {
+    VIEW_HOME,           /* large posters and next-shelf preview */
     VIEW_LOGIN,          /* server URL + credentials input */
     VIEW_LIBRARIES,      /* top-level library list */
     VIEW_BROWSE,         /* browsing items within a library */
     VIEW_NOW_PLAYING,    /* audio playback screen */
+    VIEW_DETAILS,        /* metadata and synopsis */
+    VIEW_DOWNLOADS,      /* saved SD-card media */
     VIEW_SETTINGS,       /* settings / account / about */
 } ui_view_t;
 
@@ -70,6 +74,19 @@ typedef struct {
     char         parent_stack_names[8][JFIN_MAX_NAME];
     int          parent_depth;
 
+    jfin_item_list_t home_rows[5];
+    bool home_loaded[5], home_ok[5], home_requested;
+    int home_row, home_scroll;
+    int home_selected[5], home_offset[5];
+    ui_view_t browse_root_view, downloads_return_view;
+    download_t downloads[JFIN_MAX_ITEMS];
+    int download_count, download_selected, download_scroll;
+    bool playback_offline_only, playback_from_sd;
+    jfin_item_list_t play_queue;
+    jfin_item_details_t preview;
+    bool preview_ready, preview_failed, details_loading;
+    unsigned preview_frames;
+
     /* Now playing */
     jfin_item_t  now_playing;
     bool         has_now_playing;
@@ -77,6 +94,15 @@ typedef struct {
     bool         auto_advance;    /* auto-play next track/episode when current finishes */
     bool         auto_stopped;    /* true when user manually stopped (X), false on natural end */
     bool         bottom_hidden;   /* hide bottom screen (night mode) */
+
+    jfin_item_details_t details;
+    ui_view_t details_return_view;
+    int details_scroll;
+    bool seeking;
+    int64_t seek_preview_ticks;
+    bool seek_was_paused;
+    bool seek_pause_pending;
+    char message[192];
 
     /* Login form */
     char         server_url[JFIN_MAX_URL];
@@ -87,6 +113,9 @@ typedef struct {
     /* Touch state */
     bool         touch_held;
     int          touch_start_y;
+    int          touch_start_x;
+    int          touch_anchor_x, touch_anchor_y;
+    bool         touch_dragged;
     int          scroll_velocity;
 
     /* Settings */
@@ -104,6 +133,7 @@ bool ui_init(void);
 /**
  * Shut down the UI subsystem.
  */
+void ui_begin_shutdown(void);
 void ui_cleanup(void);
 
 /* ── Frame Loop ──────────────────────────────────────────────────── */

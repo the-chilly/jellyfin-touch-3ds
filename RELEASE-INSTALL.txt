@@ -1,0 +1,39 @@
+Jellyfin Touch - New Nintendo 3DS / New Nintendo 2DS
+
+1. Copy the 3ds folder in this package to the ROOT of your SD card.
+   The executable and cacert.pem must stay together in 3ds/jellyfin-3ds/.
+2. Ensure your console has Luma3DS, the Homebrew Launcher, and its DSP
+   firmware at /3ds/dspfirm.cdc (dump with DSP1 if necessary).
+3. Launch jellyfin-3ds from the Homebrew Launcher.
+4. Up/Down selects a login field. A opens the keyboard. Enter your final
+   HTTPS server URL, username and password, then press R to connect.
+   The server URL and login token save on the SD card; the password does not.
+
+Home: tap/swipe the larger posters or use the D-pad. A opens information.
+      Bottom touch tabs: Home, Library, Downloads, Settings.
+      X opens all libraries; Y opens search; L refreshes; SELECT Settings.
+Browse: A opens information/folders; Y search; ZR current playback.
+        L/R library pages; X download to SD; SELECT Settings.
+Information: touch Play/Resume or From beginning; Up/Down scroll; A resumes/plays; X plays from the beginning. Y downloads to SD.
+Downloads: select a saved title, A/touch Play offline; X/touch Delete.
+           Saved video seeks locally. Offline music seeking is unavailable.
+           See TEST-OFFLINE.txt and the separately supplied test movie.
+Playback: tap/drag the bottom-screen timeline, then release to seek.
+          A pauses; L/R skip 30 seconds; X stops; B goes back.
+Settings: Update checks releases. Press again to install a newer version; B cancels.
+          After installation, exit and reopen. The previous .3dsx is backed up.
+START exits. Down hides playback controls; Up shows them again.
+
+HTTPS uses the included trusted CA bundle and verifies server hostnames.
+Private/self-signed servers need their trusted PEM CA added to cacert.pem.
+Use the certificate's DNS hostname and the console's correct date/time.
+Use the final server URL, including any /jellyfin base path. Redirects
+are rejected. The server must allow video/audio transcoding.
+
+This adaptation compiled successfully and passed host tests. It has not
+been tested on physical 3DS hardware. Confirm playback and repeated seeks
+on your console before treating it as a stable release.
+
+This package uses the same SD folder as upstream jellyfin-3ds. Back up
+existing config.ini/config.ini.bak before replacing an existing installation.
+Source and further notes are in jellyfin-touch-3ds-source.zip and README.md.

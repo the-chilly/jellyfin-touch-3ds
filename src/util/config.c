@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include <3ds.h>
 
 #include "util/config.h"
@@ -44,9 +45,10 @@ bool config_load(jfin_config_t *config)
     config->auto_advance = true;
 
     FILE *f = fopen(CONFIG_PATH, "r");
+    if (!f) f = fopen(CONFIG_PATH ".bak", "r");
     if (!f) return false;
 
-    char line[1024];
+    char line[1280];
     while (fgets(line, sizeof(line), f)) {
         parse_line(line, "server_url", config->server_url, sizeof(config->server_url));
         parse_line(line, "username", config->username, sizeof(config->username));
@@ -80,7 +82,11 @@ bool config_save(const jfin_config_t *config)
 {
     ensure_dirs();
 
-    FILE *f = fopen(CONFIG_PATH, "w");
+    const char *values[] = {config->server_url, config->username,
+        config->access_token, config->user_id, config->device_id};
+    for (unsigned i = 0; i < sizeof(values) / sizeof(values[0]); i++)
+        if (strpbrk(values[i], "\r\n")) return false;
+    FILE *f = fopen(CONFIG_PATH ".part", "w");
     if (!f) return false;
 
     fprintf(f, "server_url=%s\n", config->server_url);
@@ -93,8 +99,21 @@ bool config_save(const jfin_config_t *config)
     fprintf(f, "prefer_transcoding=%d\n", config->prefer_transcoding ? 1 : 0);
     fprintf(f, "auto_advance=%d\n", config->auto_advance ? 1 : 0);
 
-    fclose(f);
-    return true;
+    bool ok = !ferror(f);
+    if (fflush(f) != 0) ok = false;
+    if (fclose(f) != 0) ok = false;
+    if (!ok) { remove(CONFIG_PATH ".part"); return false; }
+    /* libctru overwrites rename destinations by deleting them first. Move the
+     * previous settings aside so interrupted replacement can recover on boot. */
+    bool backed_up = rename(CONFIG_PATH, CONFIG_PATH ".bak") == 0;
+    if (!backed_up && errno != ENOENT) {
+        remove(CONFIG_PATH ".part");
+        return false;
+    }
+    if (rename(CONFIG_PATH ".part", CONFIG_PATH) == 0) return true;
+    if (backed_up) rename(CONFIG_PATH ".bak", CONFIG_PATH);
+    remove(CONFIG_PATH ".part");
+    return false;
 }
 
 void config_ensure_device_id(jfin_config_t *config)
@@ -107,12 +126,12 @@ void config_ensure_device_id(jfin_config_t *config)
      * compatibility we just use svcGetSystemTick(). */
     u64 tick = svcGetSystemTick();
     snprintf(config->device_id, sizeof(config->device_id),
-             "3ds-%08lx%08lx", (u32)(tick >> 32), (u32)(tick & 0xFFFFFFFF));
+             "3ds-%08lx%08lx", (unsigned long)(tick >> 32), (unsigned long)(tick & 0xFFFFFFFF));
 
     config_save(config);
 }
 
-void config_save_session(jfin_config_t *config, const char *server_url,
+bool config_save_session(jfin_config_t *config, const char *server_url,
                          const char *access_token, const char *user_id,
                          const char *username)
 {
@@ -120,5 +139,5 @@ void config_save_session(jfin_config_t *config, const char *server_url,
     snprintf(config->access_token, sizeof(config->access_token), "%s", access_token);
     snprintf(config->user_id, sizeof(config->user_id), "%s", user_id);
     snprintf(config->username, sizeof(config->username), "%s", username);
-    config_save(config);
+    return config_save(config);
 }

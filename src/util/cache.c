@@ -7,6 +7,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <3ds.h>
 
 #include "util/cache.h"
 #include "util/log.h"
@@ -22,6 +23,7 @@ _Static_assert(CACHE_NAME_LEN >= 44, "CACHE_NAME_LEN too small for UUID.ext");
 
 static char s_index[CACHE_MAX_ENTRIES][CACHE_NAME_LEN];
 static int  s_index_count;
+static LightLock s_io_lock;
 
 static void make_name(const char *item_id, const char *ext,
                       char *out, size_t out_len)
@@ -40,6 +42,7 @@ static int index_find(const char *name)
 void cache_init(void)
 {
     s_index_count = 0;
+    LightLock_Init(&s_io_lock);
 
     /* Make sure the directory chain exists (fresh install may not have
      * saved a config yet) */
@@ -51,7 +54,7 @@ void cache_init(void)
     if (!d) return;
 
     struct dirent *ent;
-    while ((ent = readdir(d)) != NULL && s_index_count < CACHE_MAX_ENTRIES) {
+    while ((ent = readdir(d)) != NULL) {
         const char *n = ent->d_name;
         if (n[0] == '.') continue;
         size_t len = strlen(n);
@@ -63,7 +66,8 @@ void cache_init(void)
             log_write("CACHE: removed stale partial %s", n);
             continue;
         }
-        if (len < CACHE_NAME_LEN) {
+        if (strncmp(n, "art-", 4) == 0 || (len>5 && !strcmp(n+len-5,".json"))) continue;
+        if (len < CACHE_NAME_LEN && s_index_count < CACHE_MAX_ENTRIES) {
             snprintf(s_index[s_index_count], CACHE_NAME_LEN, "%s", n);
             s_index_count++;
         }
@@ -111,16 +115,12 @@ bool cache_remove(const char *item_id, const char *ext)
     if (i < 0)
         return false; /* not in our index — don't touch the filesystem */
 
-    s_index[i][0] = '\0';
-    /* compact: move last entry into the hole */
+    char path[512];
+    if (!cache_path(item_id, ext, path, sizeof(path)) || remove(path)!=0) return false;
     if (i != s_index_count - 1)
         memcpy(s_index[i], s_index[s_index_count - 1], CACHE_NAME_LEN);
     s_index_count--;
-
-    char path[512];
-    if (!cache_path(item_id, ext, path, sizeof(path)))
-        return false;
-    return remove(path) == 0;
+    return true;
 }
 
 bool cache_is_full(void)
@@ -149,30 +149,115 @@ uint64_t cache_total_bytes(void)
 
 int cache_clear(void)
 {
+    LightLock_Lock(&s_io_lock);
     int removed = 0;
     DIR *d = opendir(CACHE_DIR);
-    if (!d) return 0;
+    if (!d) { LightLock_Unlock(&s_io_lock); return 0; }
 
     /* Collect names first — deleting while iterating readdir is
      * undefined on some devoptab implementations */
-    static char names[CACHE_MAX_ENTRIES][CACHE_NAME_LEN];
+    static char names[CACHE_MAX_ENTRIES*3][CACHE_NAME_LEN];
     int count = 0;
     struct dirent *ent;
-    while ((ent = readdir(d)) != NULL && count < CACHE_MAX_ENTRIES) {
+    while ((ent = readdir(d)) != NULL && count < CACHE_MAX_ENTRIES*3) {
         if (ent->d_name[0] == '.') continue;
-        snprintf(names[count], CACHE_NAME_LEN, "%s", ent->d_name);
+        size_t len = strlen(ent->d_name);
+        if (len >= CACHE_NAME_LEN) continue;
+        memcpy(names[count], ent->d_name, len + 1);
         count++;
     }
     closedir(d);
 
     for (int i = 0; i < count; i++) {
         char path[512];
-        snprintf(path, sizeof(path), CACHE_DIR "/%s", names[i]);
+        int n = snprintf(path, sizeof(path), CACHE_DIR "/%.79s", names[i]);
+        if (n < 0 || n >= (int)sizeof(path)) continue;
         if (remove(path) == 0)
             removed++;
     }
 
     s_index_count = 0;
     log_write("CACHE: cleared %d file(s)", removed);
+    LightLock_Unlock(&s_io_lock);
     return removed;
+}
+
+void cache_art_key(const char *server, const char *user, const char *id,
+                   char *out, size_t length)
+{
+    uint64_t hash = 14695981039346656037ULL;
+    const char *parts[] = {server, user, id};
+    for (unsigned i = 0; i < 3; i++) {
+        for (const unsigned char *c = (const unsigned char *)parts[i]; *c; c++) {
+            hash ^= *c; hash *= 1099511628211ULL;
+        }
+        hash ^= 0; hash *= 1099511628211ULL;
+    }
+    int n = snprintf(out, length, "art-%016llx", (unsigned long long)hash);
+    if (n < 0 || (size_t)n >= length) { if (length) out[0] = '\0'; }
+}
+
+static bool art_key_valid(const char *key)
+{
+    if (!key || strlen(key) != 20 || strncmp(key, "art-", 4)) return false;
+    return strspn(key + 4, "0123456789abcdef") == 16;
+}
+
+bool cache_art_read(const char *key, unsigned char **data, size_t *length)
+{
+    *data = NULL; *length = 0;
+    if (!art_key_valid(key)) return false;
+    char path[128];
+    if (!cache_path(key, "jpg", path, sizeof(path))) return false;
+    LightLock_Lock(&s_io_lock);
+    FILE *f = fopen(path, "rb");
+    bool ok = false;
+    if (f) {
+        if (fseek(f, 0, SEEK_END) == 0) {
+            long bytes = ftell(f);
+            if (bytes > 0 && bytes <= 512 * 1024 && fseek(f, 0, SEEK_SET) == 0) {
+                unsigned char *buf = malloc((size_t)bytes);
+                if (buf && fread(buf, 1, (size_t)bytes, f) == (size_t)bytes) {
+                    *data = buf; *length = (size_t)bytes; ok = true;
+                } else free(buf);
+            }
+        }
+        fclose(f);
+    }
+    LightLock_Unlock(&s_io_lock);
+    return ok;
+}
+
+bool cache_art_write(const char *key, const unsigned char *data, size_t length)
+{
+    if (!art_key_valid(key) || !data || length == 0 || length > 512 * 1024) return false;
+    char path[128], part[128];
+    if (!cache_path(key, "jpg", path, sizeof(path)) ||
+        !cache_part_path(key, "jpg", part, sizeof(part))) return false;
+    LightLock_Lock(&s_io_lock);
+    /* Cap poster storage at 128 files (at most 64 MiB of encoded images).
+     * Existing entries may be repaired without increasing the count. */
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        DIR *d = opendir(CACHE_DIR);
+        unsigned count = 0;
+        if (d) {
+            struct dirent *ent;
+            while ((ent = readdir(d)))
+                if (!strncmp(ent->d_name, "art-", 4)) count++;
+            closedir(d);
+        }
+        if (count >= 128) { LightLock_Unlock(&s_io_lock); return false; }
+    }
+    FILE *f = fopen(part, "wb");
+    bool ok = false;
+    if (f) {
+        ok = fwrite(data, 1, length, f) == length;
+        if (fflush(f) != 0) ok = false;
+        if (fclose(f) != 0) ok = false;
+        if (ok) ok = rename(part, path) == 0;
+        if (!ok) remove(part);
+    }
+    LightLock_Unlock(&s_io_lock);
+    return ok;
 }

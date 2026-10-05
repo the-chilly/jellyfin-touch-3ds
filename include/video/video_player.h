@@ -72,6 +72,7 @@ bool video_player_play(const char *url, int64_t duration_ticks,
 /**
  * Stop playback.
  */
+void video_player_request_stop(void); /* signal without waiting */
 void video_player_stop(void);
 
 /**

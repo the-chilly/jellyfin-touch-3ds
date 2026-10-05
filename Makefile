@@ -19,7 +19,7 @@ SOURCES		:=	src src/api src/audio src/video src/ui src/util
 DATA		:=	data
 INCLUDES	:=	include include/api include/audio include/video include/ui include/util
 
-APP_TITLE		:= Jellyfin 3DS
+APP_TITLE		:= Jellyfin Touch
 APP_DESCRIPTION	:= Jellyfin media client for Nintendo 3DS
 APP_AUTHOR		:= jellyfin-3ds team
 

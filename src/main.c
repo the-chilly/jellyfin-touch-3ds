@@ -55,16 +55,16 @@ static void init_services(void)
 
 static void cleanup_services(void)
 {
-    C2D_Fini();
-    C3D_Fini();
-    ndspExit();
-    socExit();
-    gfxExit();
+    log_write("EXIT: C2D");C2D_Fini();
+    log_write("EXIT: C3D");C3D_Fini();
+    log_write("EXIT: NDSP");ndspExit();
+    log_write("EXIT: sockets");socExit();
+    log_write("EXIT: graphics");gfxExit();
 }
 
 static bool try_auto_login(void)
 {
-    if (g_config.server_url[0] == '\0' || g_config.access_token[0] == '\0')
+    if (g_config.server_url[0] == '\0' || g_config.access_token[0] == '\0' || g_config.user_id[0] == '\0')
         return false;
 
     /* Restore session from saved config */
@@ -100,14 +100,17 @@ int main(int argc, char *argv[])
     memset(&s_session, 0, sizeof(s_session));
     memset(&s_ui, 0, sizeof(s_ui));
     s_ui.auto_advance = g_config.auto_advance;
+    snprintf(s_ui.username, sizeof(s_ui.username), "%s", g_config.username);
 
     if (try_auto_login()) {
-        s_ui.current_view = VIEW_LIBRARIES;
+        s_ui.current_view = VIEW_HOME;
         /* Pre-fetch libraries so they're ready when the view renders */
         if (!jfin_get_views(&s_session, &s_ui.items) || s_ui.items.count == 0) {
             /* Token might be stale — fall back to login */
             s_session.authenticated = false;
-            s_ui.current_view = VIEW_LOGIN;
+            s_ui.download_count=download_list(&s_session,s_ui.downloads,JFIN_MAX_ITEMS);
+            s_ui.current_view = s_ui.download_count>0?VIEW_DOWNLOADS:VIEW_LOGIN;
+            s_ui.downloads_return_view=VIEW_LOGIN;
             if (g_config.server_url[0] != '\0')
                 snprintf(s_ui.server_url, sizeof(s_ui.server_url), "%s", g_config.server_url);
         }
@@ -134,6 +137,7 @@ int main(int argc, char *argv[])
 
         /* Update */
         ui_update(&s_ui, &s_session, kdown, kheld, touch);
+        if (aptShouldClose()) break; /* modal requests may have handled HOME close */
         audio_player_update();
 
         /* Render */
@@ -146,6 +150,11 @@ int main(int argc, char *argv[])
 
     /* ── Cleanup ───────────────────────────────────────────────────── */
 
+    log_write("EXIT: cancel background requests and streams");
+    audio_player_request_stop(); video_player_request_stop(); ui_begin_shutdown();
+    log_write("EXIT: synchronize existing GPU work");C3D_FrameSync();
+    log_write("EXIT: save session");
+
     /* Save session for next launch */
     if (s_session.authenticated) {
         snprintf(g_config.access_token, sizeof(g_config.access_token), "%s", s_session.access_token);
@@ -153,14 +162,12 @@ int main(int argc, char *argv[])
         config_save(&g_config);
     }
 
-    video_player_stop();
-    video_player_cleanup();
-    audio_player_stop();
-    audio_player_cleanup();
-    ui_cleanup();
-    jfin_cleanup();
-    log_close();
-    cleanup_services();
+    log_write("EXIT: video cleanup");video_player_cleanup();
+    log_write("EXIT: audio cleanup");audio_player_cleanup();
+    log_write("EXIT: UI workers and textures");ui_cleanup();
+    log_write("EXIT: Jellyfin cleanup");jfin_cleanup();
+    log_write("EXIT: system services");cleanup_services();
+    log_write("EXIT: complete");log_close();
 
     return 0;
 }

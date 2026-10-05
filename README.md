@@ -1,117 +1,120 @@
-# Jellyfin 3DS
+# Jellyfin Touch for New Nintendo 3DS / New 2DS
 
-Native Jellyfin media client for Nintendo 3DS. Stream music and video from your Jellyfin server directly to your 3DS.
+A personal homebrew adaptation of [bogocat/jellyfin-3ds](https://github.com/bogocat/jellyfin-3ds), based on commit `05bfa02f131d13f163bc7091d18af3b5b84f0820`. Licensed under GPL-3.0; upstream LICENSE and credits are preserved. This is an unofficial Jellyfin client.
 
-**The first native Jellyfin client for Nintendo 3DS.**
+**Status: the devkitARM build succeeded and host tests pass.** A compiled `.3dsx` is provided in the separate SD-card package. This adaptation has not been tested on a physical 3DS; playback, rendering and real SD-card behavior remain unverified. No CIA installer is provided.
 
 ## Features
 
-- **Music streaming** — browse artists, albums, tracks. MP3/AAC with album art
-- **Video streaming** — H.264 hardware decode at 24fps on New 3DS (400x224)
-- **Audio + video sync** — 3-thread architecture with audio-master sync
-- **Library browsing** — navigate all Jellyfin libraries with pagination
-- **Search** — find content across all libraries (SELECT button)
-- **Seeking** — skip forward/back 30 seconds (L/R shoulder buttons)
-- **Auto-play** — next track/episode plays automatically
-- **Session persistence** — login once, credentials saved to SD card
-- **Watch mode** — hide bottom screen for distraction-free viewing (D-pad Down)
-- **Album art** — displayed on now-playing screen for music
+- Animated loading ring during playback startup, buffering, shelf and information loading. Foreground API requests poll in small slices to redraw while waiting; brief player/decoder setup can still pause drawing.
 
-## Requirements
+- Netflix 3DS-inspired orange/gray browsing UI: selected poster and metadata on the top screen, three larger portrait posters below with a preview of the next shelf, and a yellow selection outline, and resume progress bars.
+- Persistent touchscreen tabs: Home, Library, Downloads, Settings. Downloads lists saved movies, episodes and songs with their SD file sizes. Touch **Play offline** or **Delete**. Download from Information (Y/touch) or Browse (X).
+- Home shelves: Continue Watching, Movies, TV Shows, Music (albums), Recently Added. Shelves show up to 16 titles; X opens full libraries with normal pagination.
+- Authenticated artwork and metadata load on separate artwork and metadata background threads. Encoded poster images are cached on SD, scoped by server and user, with a 128-file / 64 MiB maximum. Missing artwork uses a title placeholder. Failed requests retry automatically; L refreshes shelves and information; Settings can clear the shared cache.
 
-- Nintendo 3DS with [Luma3DS](https://github.com/LumaTeam/Luma3DS) CFW
-- [Homebrew Launcher](https://github.com/devkitPro/3ds-hbmenu)
-- Jellyfin server on the same network
-- **New 3DS** required for video playback (Old 3DS: audio only)
+- HTTPS with certificate and hostname verification across login, library API, artwork, audio, video and downloads.
+- Movies, TV series/seasons/episodes, music artists/albums/tracks.
+- Media information: title, year, runtime, episode season/number, series, artist, album, genres, rating and a scrollable description. Fields depend on your Jellyfin metadata.
+- Touch timeline: tap a time, or drag to preview it and release to seek. Restarts once per gesture. Keeps a paused video paused after buffering. L/R still seek 30 seconds.
+- Saved server URL (including reverse-proxy path), username, access token, user ID and device ID on the SD card. The password is never saved. Automatically restores the session on launch; revoked tokens require login again.
+- Existing New 3DS H.264 hardware playback, audio streaming, pagination, search and offline cache.
 
-## Install
+## Build
 
-1. Download `jellyfin-3ds.3dsx` from [Releases](../../releases)
-2. Copy to `sdmc:/3ds/jellyfin-3ds/jellyfin-3ds.3dsx` on your SD card
-3. Launch from Homebrew Launcher
+With Docker installed and running:
 
-## Usage
-
-### Controls
-
-| Screen | Button | Action |
-|--------|--------|--------|
-| Browse | D-pad | Navigate list |
-| Browse | A | Enter folder / Play |
-| Browse | B | Go back |
-| Browse | L/R | Next/previous page |
-| Browse | SELECT | Search |
-| Browse | Touch | Tap to select, drag to scroll |
-| Now Playing | A | Pause / Resume |
-| Now Playing | X | Stop |
-| Now Playing | B | Back to browse |
-| Now Playing | L/R | Seek ±30 seconds |
-| Now Playing | D-pad Down | Watch mode (hide controls) |
-| Now Playing | D-pad Up | Show controls |
-| Any | START | Exit app |
-
-### First Launch
-
-1. Enter your Jellyfin server URL (e.g. `http://192.168.1.100:8096`)
-2. Enter username and password
-3. Press R to connect
-
-Credentials are saved automatically — next launch skips login.
-
-## Building from Source
-
-### Prerequisites
-
-- [devkitPro](https://devkitpro.org/) with 3DS toolchain
-- Docker (for reproducible builds)
-
-### Build
-
-```bash
-# Install devkitPro packages (if building natively)
-sudo dkp-pacman -S 3ds-dev 3ds-curl 3ds-mbedtls 3ds-zlib \
-    3ds-libmpg123 3ds-libopus 3ds-opusfile 3ds-libvorbisidec 3ds-libogg
-
-# Build the app (first run cross-compiles FFmpeg, ~15 min; subsequent runs are fast)
+```sh
 ./build.sh
-
-# Deploy via FTP (3DS must be running ftpd)
-./deploy-ftp.sh <3DS_IP> 5000
 ```
 
-### Docker build (recommended)
+The script uses `devkitpro/devkitarm:20260610`, installs 3DS dependencies, builds the pinned FFmpeg fork when needed, and produces `jellyfin-3ds.3dsx` plus an SD-ready folder under `dist/3ds/jellyfin-3ds/`. The first FFmpeg build can take approximately 15 minutes. Run `./build.sh clean` to rebuild the app from scratch.
 
-```bash
-./build.sh  # uses devkitpro/devkitarm Docker image
-```
+For native devkitPro builds, install `3ds-dev`, `3ds-curl`, `3ds-mbedtls`, `3ds-zlib`, `3ds-mpg123`, `3ds-libopus`, `3ds-opusfile`, `3ds-libvorbisidec` and `3ds-libogg`. You also need the static FFmpeg libraries and headers in `lib/ffmpeg/`; the supplied FFmpeg build script targets the Linux Docker environment. Once those dependencies exist, run `make JFIN_VERSION=touch-0.4.1`.
 
-## Architecture
+Source and releases: [the-chilly/jellyfin-touch-3ds](https://github.com/the-chilly/jellyfin-touch-3ds). GitHub Actions can build the app; console behavior requires hardware testing.
 
-```
-Network thread → Ring buffer → Decode thread (FFmpeg demux + MVD H.264 + AAC)
-    → Frame queue (6 slots) → Convert thread (Morton tile + A/V sync)
-    → Double-buffered GPU textures → Main thread (citro2d render)
-```
+## Install the compiled package
 
-- **FFmpeg 6.x** — MPEG-TS demuxer, AAC decoder, H.264 parser
-- **MVD** — Hardware H.264 decoder (New 3DS)
-- **NDSP** — Hardware audio output
-- **citro2d/citro3d** — GPU-accelerated 2D rendering
-- **libcurl + mbedTLS** — HTTPS networking
-- **cJSON** — JSON API parsing
-- **stb_image** — Album art JPEG decoding
+1. Use a New Nintendo 3DS or New Nintendo 2DS with Luma3DS and the Homebrew Launcher.
+2. Extract `jellyfin-touch-3ds-sd.zip` and copy its `3ds/` folder to the root of your SD card. For a source build, use the generated `dist/3ds/` folder.
+3. Ensure you have the console's DSP firmware at `sdmc:/3ds/dspfirm.cdc` (for example, dumped with DSP1).
+4. Launch `jellyfin-3ds.3dsx` from the Homebrew Launcher.
+5. Select each field with Up/Down and A. Enter your final server URL, username and password. Press R to log in. Settings save immediately after successful login.
 
-## Known Limitations
+Settings are stored in `sdmc:/3ds/jellyfin-3ds/config.ini`, with a `.bak` recovery copy. This adaptation shares that folder with upstream; back up existing settings before testing. The token stored there grants access to your account. Logout is available under Settings.
 
-- Video playback requires **New 3DS** (Old 3DS: audio only)
-- No subtitle support yet
-- No offline/download mode
-- CIA install not yet working (use .3dsx via Homebrew Launcher)
-- Some library types may show unexpected content (server-dependent)
+## HTTPS setup
+
+Copy the included `cacert.pem` to **`sdmc:/3ds/jellyfin-3ds/cacert.pem`** alongside the executable. This is the public CA bundle downloaded from [curl's Mozilla CA extract](https://curl.se/docs/caextract.html). Update it from that source when necessary. Certificate checking follows [curl's verification guidance](https://curl.se/docs/sslcerts.html).
+
+For a private CA or self-signed server, append your trusted PEM CA certificate to that bundle. Use the DNS hostname covered by the certificate, and set the console's date/time correctly. The client never falls back to disabling certificate verification.
+
+Use the final URL, e.g. `https://media.example.com/jellyfin`. Redirects are rejected to avoid sending credentials or stream tokens to another destination. Your reverse proxy must serve that address directly. HTTP is also supported when explicitly entered.
+
+## Controls
+
+| Screen | Controls |
+| --- | --- |
+| Login | Up/Down: field; A: keyboard; R: connect |
+| Home | Touch: tap a poster to select; swipe to move; D-pad: titles/shelves; A: information; tap the bottom tabs to navigate |
+| Home | X: full libraries; Y / Search touch button: search; L: refresh; SELECT: Settings; B/ZR: current playback |
+| Browse | Touch: poster selection/swipes; D-pad: grid; A: information/open; B: back; Y: search; ZR: current playback |
+| Browse | L/R: library pages; SELECT: Settings; X: download to SD |
+| Information | Up/Down: description scroll; A: resume/play or open episodes/tracks; X: play from beginning; B: back |
+| Playback | Touch timeline: seek; A: pause/resume; L/R: seek 30s; X: stop; B: browse/info |
+| Playback | Down: hide controls; Up: show controls |
+| Anywhere | START: exit |
+
+Dragging previews a target while playback continues. Releasing reopens the stream at that position, so seeking requires buffering. B/X cancel an active drag before their usual action. Seeking is disabled when no duration is available.
+
+## Exit behavior
+
+Version touch-0.3.1 cancels idle audio/video, poster and metadata transfers before joining their workers. Stop flags use atomic access, and cleanup waits for existing GPU work instead of beginning a new frame after the HOME Menu closes the app. START and HOME Menu exit still require real-console verification. Modal loading screens also process HOME/sleep events before drawing, and the main loop skips rendering once close is requested. Shutdown stages are written to the debug log.
+
+## Loading troubleshooting
+
+Version touch-0.3.1 separates artwork downloads from shelf/description requests so a slow poster cannot hold the remaining shelves in the queue. Detail requests explicitly enable images/user data and request the overview. Temporary failures retry; the UI distinguishes failed information requests from a legitimately missing description.
+
+If loading still stalls on the console, reproduce it and copy `3ds/jellyfin-3ds/debug.log` from the SD card before launching again (each launch resets it). Logs now record download/HTTP failures, decoded image dimensions and metadata results without logging request URLs or tokens.
+
+## Verification and remaining limits
+
+Run `python3 tests/run_host_tests.py` on a Mac/Linux host with Clang, curl development headers/library, Python 3 and OpenSSL. The test runner creates only temporary files and a loopback HTTPS server.
+
+Passed here:
+
+- No new drawing frame or playback start after a simulated HOME close during loading.
+- Idle HTTPS transfer cancellation while headers or a response body are stalled; worker shutdown completes without waiting for the server timeout.
+
+- Timeline limits, unknown duration, very short clips and overflow bounds.
+- Actual UI input code with mock hardware: three-column poster taps, all four bottom tabs, Downloads placeholder/back navigation, gutter rejection, horizontal swipes, shelf/grid navigation, return from Settings, pending metadata playback protection, drag previews without reopening, one seek on release, cancel, failed seek, deferred pause and details navigation.
+- Saved config, device ID stability, rejected newline injection, preservation of previous settings when writing fails, and backup recovery.
+- Background artwork service: authenticated HTTPS, scoped SD cache round trips and capacity, malformed/oversized image rejection, stale metadata response rejection, all GPU operations on the frame thread, and metadata/shelves completing while a poster request is stalled, and worker cleanup while a metadata response is stalled.
+- Real libcurl requests to a local HTTPS fixture: repeated frame callbacks throughout a stalled foreground request, no UI callbacks from background requests, home shelves, series-art fallback, login, metadata parsing, proxy base path, stream seek parameters, rejection of an untrusted CA, wrong hostname and redirects.
+
+The application also compiled and linked successfully for ARM with the pinned devkitPro Docker environment. The build retains upstream FFmpeg enum-size linker notices; those are documented here rather than suppressed. The tests do **not** validate real SD-card behavior, Nintendo rendering, decoder performance, Jellyfin transcoding compatibility or actual A/V sync. Real hardware testing must cover a movie, several TV episodes, music, saved login after reboot, and at least ten consecutive seeks. Upstream has reported repeated-seek video issues; this adaptation does not claim to have resolved every decoder/transcode issue.
+
+The server must permit transcoding and have a working FFmpeg installation. The existing video path requests small H.264/AAC MPEG-TS streams for the console. Old 3DS video, subtitle selection and a verified CIA installer are outside this adaptation.
 
 ## Credits
 
-Built with reference to:
-- [ThirdTube](https://github.com/windows-server-2003/ThirdTube) — video architecture
-- [Switchfin](https://github.com/dragonflylee/switchfin) — Jellyfin API patterns
-- [Video player for 3DS](https://github.com/Core-2-Extreme/Video_player_for_3DS) — MVD decoder usage
+Original Jellyfin 3DS implementation by bogocat and contributors. Underlying projects include devkitPro/libctru, citro2d/citro3d, curl/mbedTLS, cJSON, FFmpeg/ThirdTube, mpg123, Opus, Vorbis and stb_image. Upstream also credits Switchfin and Video player for 3DS for implementation references.
+
+
+## Experimental downloads — touch-0.4.0
+
+Information has a **Y Download to SD card** button. Downloads shows up to 50 saved titles for the current server/account with file sizes, Play offline, and Delete. Progress shows received MB and a size estimate when the server omits a total; B cancels. Keep the console awake while downloading. Movies/episodes use the existing H.264/AAC MPEG-TS stream; songs use MP3. Completed media and title/description metadata persist on SD, scoped to server and account. Login tokens are not included in download metadata. Previously viewed posters load from the artwork cache; a missing cached image shows the title.
+
+**Play offline** opens a local file and never falls back to streaming or reports playback to Jellyfin. The playback screen labels the source **SD card** or **Streaming**. Saved video supports the existing local-file seek path. Offline MP3 seeking is not implemented: the app leaves playback running and shows a message. Offline plays do not sync watched state. Downloads run in the foreground, with responsive cancel/HOME handling; there is no queue or interrupted-transfer resume yet. Each file is limited to 3.75 GiB. Transfers that fail, contain no media, have a short declared body, or fail to save are discarded. A nominally successful server response is not a guarantee that every frame of a long transcode is intact.
+
+After a failed server connection at startup, saved titles for the remembered server/account open in Downloads. The initial connection attempt may take several seconds. Old unscoped cache files are not listed here; clear the cache in Settings and re-download them if needed. Deleting an active download stops playback first.
+
+The host tests download a real 20-second generated H.264/AAC test movie and an MP3 over trusted HTTPS, compare their saved bytes, reopen metadata after cache initialization, and verify rejection/cancellation cases. The saved movie is decoded with audio and sought to 10 seconds using host FFmpeg. UI tests confirm touch actions, local video seeking, no streaming fallback on failure, and stop-before-delete. **These checks do not validate the New 3DS hardware decoder or a live Jellyfin transcode.** See the package's TEST-OFFLINE.txt for the console procedure.
+
+
+## Updates — touch-0.4.1
+
+In Settings, select or touch **Update**. The first press checks the latest public release from `the-chilly/jellyfin-touch-3ds`. If a newer version is available, press it again to install. B cancels a check or download. The app verifies the published SHA-256 digest, exact file size and 3DSX header before installing. Invalid or cancelled downloads leave the current executable intact. The previous executable is retained as `jellyfin-3ds.3dsx.bak`; exit and reopen through the Homebrew Launcher after installation. Keep the app in `/3ds/jellyfin-3ds/jellyfin-3ds.3dsx` for this updater. Login, cache, DSP firmware and settings are preserved. This button updates the 3DSX executable; CIA installations are not supported.
+
+Update requests use verified HTTPS without sending Jellyfin credentials. GitHub's latest-release API supplies release metadata and asset hashes ([API reference](https://docs.github.com/en/rest/releases/releases)). GitHub rate limits or missing network/certificates display an error. Update checks are manual. A release without the expected executable/hash is rejected. This is still an experimental build pending hardware testing.

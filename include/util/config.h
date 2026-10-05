@@ -18,7 +18,7 @@ extern "C" {
 #define CACHE_PATH  "sdmc:/3ds/jellyfin-3ds/cache/"
 
 typedef struct {
-    char server_url[512];
+    char server_url[1024];
     char username[64];
     char access_token[256];
     char user_id[64];
@@ -50,7 +50,7 @@ void config_ensure_device_id(jfin_config_t *config);
  * Save session credentials from a live session into config and write to disk.
  * Call immediately after successful login so credentials persist even on crash.
  */
-void config_save_session(jfin_config_t *config, const char *server_url,
+bool config_save_session(jfin_config_t *config, const char *server_url,
                          const char *access_token, const char *user_id,
                          const char *username);
 

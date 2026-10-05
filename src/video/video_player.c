@@ -16,6 +16,7 @@
 #include "util/log.h"
 #include <malloc.h>
 #include <curl/curl.h>
+#include "util/net.h"
 
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -59,7 +60,7 @@ static struct {
     Thread          net_thread;
     Thread          decode_thread;
     Thread          convert_thread;
-    volatile bool   stop_requested;
+    bool            stop_requested;
 
     /* State */
     video_state_t   state;
@@ -254,16 +255,21 @@ static double get_audio_clock(void)
 
 static int64_t s_net_bytes_rx; /* net thread only — gates retry safety */
 
+static bool video_stopping(void)
+{ return __atomic_load_n(&s_vp.stop_requested,__ATOMIC_ACQUIRE); }
+void video_player_request_stop(void)
+{ __atomic_store_n(&s_vp.stop_requested,true,__ATOMIC_RELEASE); }
+
 static size_t net_write_cb(void *ptr, size_t size, size_t nmemb, void *userdata)
 {
     demux_ctx_t *demux = (demux_ctx_t *)userdata;
     size_t total = size * nmemb;
 
-    if (s_vp.stop_requested) return 0;
+    if (video_stopping()) return 0;
     s_net_bytes_rx += (int64_t)total;
 
     size_t written = 0;
-    while (written < total && !s_vp.stop_requested) {
+    while (written < total && !video_stopping()) {
         int fill = __atomic_load_n(&demux->ring_fill, __ATOMIC_ACQUIRE);
         int space = demux->ring_size - fill;
         int chunk = (int)((total - written) < (size_t)space ? (total - written) : (size_t)space);
@@ -300,8 +306,7 @@ static void net_thread_func(void *arg)
     curl_easy_setopt(curl, CURLOPT_URL, s_vp.url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, net_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &s_vp.demux);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    net_configure(curl);
     curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 65536L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Jellyfin-3DS/" JFIN_VERSION);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L); /* server may need time to start transcoding */
@@ -311,20 +316,21 @@ static void net_thread_func(void *arg)
     CURLcode res = CURLE_OK;
     long http_code = 0;
 
-    for (int attempt = 0; attempt <= NET_MAX_RETRIES && !s_vp.stop_requested; attempt++) {
+    for (int attempt = 0; attempt <= NET_MAX_RETRIES && !video_stopping(); attempt++) {
         if (attempt > 0) {
             log_write("NET: retry %d/%d after transient failure", attempt, NET_MAX_RETRIES);
-            svcSleepThread(2000000000LL); /* 2s backoff */
+            for(int wait=0;wait<40 && !video_stopping();wait++) svcSleepThread(50000000LL);
+            if(video_stopping())break;
         }
 
-        res = curl_easy_perform(curl);
+        res = net_perform_cancelable(curl,&s_vp.stop_requested);
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
         log_write("NET: curl done, result=%d (%s), http=%ld, ring_fill=%d attempt=%d",
                   res, curl_easy_strerror(res), http_code,
                   __atomic_load_n(&s_vp.demux.ring_fill, __ATOMIC_ACQUIRE), attempt);
 
         /* Success or non-retryable: stop */
-        if (res == CURLE_OK || res == CURLE_WRITE_ERROR /* stop_requested */)
+        if (res == CURLE_OK || res == CURLE_ABORTED_BY_CALLBACK || res == CURLE_WRITE_ERROR /* stop_requested */)
             break;
 
         /* A retry restarts the transfer from byte 0 (Jellyfin's transcode
@@ -344,7 +350,7 @@ static void net_thread_func(void *arg)
             break;
     }
 
-    if (res != CURLE_OK && res != CURLE_WRITE_ERROR && !s_vp.stop_requested) {
+    if (res != CURLE_OK && res != CURLE_WRITE_ERROR && !video_stopping()) {
         if (http_code > 0)
             snprintf(s_vp.error_msg, sizeof(s_vp.error_msg),
                      "HTTP %ld: %s", http_code, curl_easy_strerror(res));
@@ -484,10 +490,10 @@ static void decode_audio_packet(AVPacket *pkt)
          * resubmit a buffer NDSP still owns (queue corruption). Stop breaks
          * the wait. */
         while ((wbuf->status == NDSP_WBUF_QUEUED || wbuf->status == NDSP_WBUF_PLAYING)
-               && !s_vp.stop_requested) {
+               && !video_stopping()) {
             svcSleepThread(1000000LL);
         }
-        if (s_vp.stop_requested) break;
+        if (video_stopping()) break;
 
         /* Convert to s16 stereo */
         int out_samples = swr_convert(s_vp.swr_ctx,
@@ -528,13 +534,13 @@ static void decode_thread_func(void *arg)
         log_write("DEC: thread started, waiting for prefetch (%d bytes)", PREFETCH_BYTES);
 
         /* Wait for prefetch */
-        while (!s_vp.stop_requested) {
+        while (!video_stopping()) {
             if (__atomic_load_n(&s_vp.demux.ring_fill, __ATOMIC_ACQUIRE) >= PREFETCH_BYTES
                 || __atomic_load_n(&s_vp.demux.ring_finished, __ATOMIC_ACQUIRE))
                 break;
             svcSleepThread(10000000LL); /* 10ms */
         }
-        if (s_vp.stop_requested) { log_write("DEC: stop during prefetch"); return; }
+        if (video_stopping()) { log_write("DEC: stop during prefetch"); return; }
 
         log_write("DEC: prefetch done, fill=%d finished=%d",
                   __atomic_load_n(&s_vp.demux.ring_fill, __ATOMIC_ACQUIRE),
@@ -614,7 +620,7 @@ static void decode_thread_func(void *arg)
     AVPacket *pkt = av_packet_alloc();
     if (!pkt) return;
 
-    while (!s_vp.stop_requested) {
+    while (!video_stopping()) {
         bool is_video = false;
         int ret = demux_read_packet(&s_vp.demux, pkt, &is_video);
         if (ret < 0) break; /* EOF or error */
@@ -654,7 +660,7 @@ static void decode_thread_func(void *arg)
 
     av_packet_free(&pkt);
 
-    if (!s_vp.stop_requested) {
+    if (!video_stopping()) {
         LightLock_Lock(&s_vp.state_lock);
         s_vp.state = VIDEO_STOPPED;
         LightLock_Unlock(&s_vp.state_lock);
@@ -676,7 +682,7 @@ static void convert_thread_func(void *arg)
     const double ahead_thr  = s_vp.is_3d ? 0.025 : 0.020;
     const double behind_thr = s_vp.is_3d ? 0.250 : 0.150;
 
-    while (!s_vp.stop_requested) {
+    while (!video_stopping()) {
         /* Wait for a frame in the queue */
         double next_pts = fq_peek_pts(&s_vp.fq);
         if (next_pts < 0) {
@@ -926,7 +932,7 @@ bool video_player_play(const char *url, int64_t duration_ticks,
     s_net_bytes_rx = 0;
     s_vp.position_ticks = seek_offset_ticks;
     s_vp.error_msg[0] = '\0';
-    s_vp.stop_requested = false;
+    __atomic_store_n(&s_vp.stop_requested, false, __ATOMIC_RELEASE);
     s_vp.state = VIDEO_LOADING;
     s_vp.new_tex_ready = false;
     s_vp.audio_buf_idx = 0;
@@ -971,7 +977,7 @@ bool video_player_play(const char *url, int64_t duration_ticks,
                  "Thread create failed (net=%p dec=%p)",
                  (void*)s_vp.net_thread, (void*)s_vp.decode_thread);
         /* Clean up any thread that DID start */
-        s_vp.stop_requested = true;
+        __atomic_store_n(&s_vp.stop_requested, true, __ATOMIC_RELEASE);
         if (s_vp.net_thread) {
             threadJoin(s_vp.net_thread, U64_MAX);
             threadFree(s_vp.net_thread);
@@ -998,7 +1004,7 @@ void video_player_stop(void)
     if (!s_vp.net_thread && !s_vp.decode_thread && !s_vp.convert_thread)
         return;
 
-    s_vp.stop_requested = true;
+    __atomic_store_n(&s_vp.stop_requested, true, __ATOMIC_RELEASE);
 
     if (s_vp.net_thread) {
         threadJoin(s_vp.net_thread, U64_MAX);

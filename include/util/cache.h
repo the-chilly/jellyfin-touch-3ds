@@ -53,6 +53,13 @@ uint64_t cache_total_bytes(void);
 /** Delete every file in the cache dir. Returns number of files removed. */
 int cache_clear(void);
 
+/* Thread-safe poster storage shares the media cache directory and .part policy.
+ * Artwork is scoped to server + user + image ID; no tokens enter filenames. */
+void cache_art_key(const char *server, const char *user, const char *id,
+                   char *out, size_t length);
+bool cache_art_read(const char *key, unsigned char **data, size_t *length);
+bool cache_art_write(const char *key, const unsigned char *data, size_t length);
+
 #ifdef __cplusplus
 }
 #endif

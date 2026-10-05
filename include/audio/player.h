@@ -58,6 +58,7 @@ bool audio_player_play(const char *url, int64_t duration_ticks, int64_t seek_off
 /**
  * Stop playback and discard buffers.
  */
+void audio_player_request_stop(void); /* signal without waiting */
 void audio_player_stop(void);
 
 /**
